@@ -1,5 +1,16 @@
-#[tokio::main]
-pub async fn main() {
-    // create the cli interface here
-}
+use light_rpc::{bridge::LightBridge, rpc::server::Rpc};
 
+const RPC_ADDR: &str = "127.0.0.1:8899";
+const TPU_ADDR: &str = "127.0.0.1:1027";
+const CONNECTION_POOL_SIZE: usize = 2000;
+
+#[tokio::main]
+pub async fn main() -> Result<(), std::io::Error> {
+    let light_bridge = LightBridge::new(
+        RPC_ADDR.parse().unwrap(),
+        TPU_ADDR.parse().unwrap(),
+        CONNECTION_POOL_SIZE,
+    );
+
+    Rpc { light_bridge }.run(RPC_ADDR).await
+}

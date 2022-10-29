@@ -1,3 +1,2 @@
-mod rpc;
 pub mod bridge;
-pub use rpc::*;
+pub mod rpc;
