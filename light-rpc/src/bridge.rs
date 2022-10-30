@@ -33,8 +33,9 @@ impl LightBridge {
 
 #[cfg(test)]
 mod tests {
+
     use {
-        crate::LightBridge,
+        crate::bridge::LightBridge,
         borsh::{BorshDeserialize, BorshSerialize},
         solana_sdk::{
             instruction::Instruction, message::Message, pubkey::Pubkey, signature::Signer,
@@ -45,6 +46,7 @@ mod tests {
     const RPC_ADDR: &str = "127.0.0.1:8899";
     const TPU_ADDR: &str = "127.0.0.1:1027";
     const CONNECTION_POOL_SIZE: usize = 1;
+
     #[derive(BorshSerialize, BorshDeserialize)]
     enum BankInstruction {
         Initialize,
@@ -54,32 +56,36 @@ mod tests {
 
     #[test]
     fn initialize_light_bridge() {
-        let _light_rpc = LightBridge::new(
+        let _light_bridge = LightBridge::new(
             RPC_ADDR.parse().unwrap(),
             TPU_ADDR.parse().unwrap(),
             CONNECTION_POOL_SIZE,
         );
     }
+
     #[test]
     fn test_forward_transaction() {
-        let light_rpc = LightRpc::new(
+        let lbght_bridge = LightBridge::new(
             RPC_ADDR.parse().unwrap(),
             TPU_ADDR.parse().unwrap(),
             CONNECTION_POOL_SIZE,
         );
+
         let program_id = Pubkey::new_unique();
         let payer = Keypair::new();
         let bankins = BankInstruction::Initialize;
         let instruction = Instruction::new_with_borsh(program_id, &bankins, vec![]);
 
         let message = Message::new(&[instruction], Some(&payer.pubkey()));
-        let blockhash = light_rpc
+        let blockhash = lbght_bridge
             .thin_client
             .rpc_client()
             .get_latest_blockhash()
             .unwrap();
+
         let tx = Transaction::new(&[&payer], message, blockhash);
-        let x = light_rpc.forward_transaction(tx).unwrap();
+        let x = lbght_bridge.forward_transaction(tx).unwrap();
+
         println!("{}", x);
     }
 }
