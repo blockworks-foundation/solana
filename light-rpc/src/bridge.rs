@@ -6,16 +6,13 @@ use {
     },
     std::{net::SocketAddr, sync::Arc},
 };
-// use solana_client::tpu_client::TpuSenderError;
 
-// type Result<T> = std::result::Result<T, TpuSenderError>;
-
-pub struct LightRpc {
+pub struct LightBridge {
     pub connection_cache: Arc<ConnectionCache>,
     pub thin_client: ThinClient,
 }
 
-impl LightRpc {
+impl LightBridge {
     pub fn new(rpc_addr: SocketAddr, tpu_addr: SocketAddr, connection_pool_size: usize) -> Self {
         let connection_cache = Arc::new(ConnectionCache::new(connection_pool_size));
         let thin_client = ThinClient::new(rpc_addr, tpu_addr, connection_cache.clone());
@@ -37,7 +34,7 @@ impl LightRpc {
 #[cfg(test)]
 mod tests {
     use {
-        crate::LightRpc,
+        crate::LightBridge,
         borsh::{BorshDeserialize, BorshSerialize},
         solana_sdk::{
             instruction::Instruction, message::Message, pubkey::Pubkey, signature::Signer,
@@ -56,8 +53,8 @@ mod tests {
     }
 
     #[test]
-    fn initialize_light_rpc() {
-        let _light_rpc = LightRpc::new(
+    fn initialize_light_bridge() {
+        let _light_rpc = LightBridge::new(
             RPC_ADDR.parse().unwrap(),
             TPU_ADDR.parse().unwrap(),
             CONNECTION_POOL_SIZE,
