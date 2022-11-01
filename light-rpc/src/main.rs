@@ -1,4 +1,4 @@
-use light_rpc::{bridge::LightBridge, rpc::server::Rpc};
+use light_rpc::bridge::LightBridge;
 
 const RPC_ADDR: &str = "127.0.0.1:8899";
 const TPU_ADDR: &str = "127.0.0.1:1027";
@@ -12,5 +12,5 @@ pub async fn main() -> Result<(), std::io::Error> {
         CONNECTION_POOL_SIZE,
     );
 
-    Rpc { light_bridge }.run(RPC_ADDR).await
+    light_bridge.start_server("127.0.0.1:8890").await
 }
