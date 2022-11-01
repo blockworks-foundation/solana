@@ -1,16 +1,8 @@
 use {
-    actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer, Responder},
+    actix_web::{http::StatusCode, HttpResponse, Responder},
     serde::{Deserialize, Serialize},
     serde_json::json,
-    solana_client::{
-        connection_cache::ConnectionCache, rpc_config::RpcSendTransactionConfig,
-        thin_client::ThinClient,
-    },
-    solana_sdk::{client::AsyncClient, signature::Signature, transport::TransportError},
-    std::{
-        net::{SocketAddr, ToSocketAddrs},
-        sync::Arc,
-    },
+    solana_sdk::transport::TransportError,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
