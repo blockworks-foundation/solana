@@ -1,14 +1,11 @@
-use solana_client::tpu_connection::TpuConnection;
-use solana_sdk::transaction::Transaction;
-
 use {
     crate::rpc::{JsonRpcError, JsonRpcReq, JsonRpcRes, RpcMethod},
     actix_web::{web, App, HttpServer},
     solana_client::{
         connection_cache::ConnectionCache, rpc_config::RpcSendTransactionConfig,
-        thin_client::ThinClient,
+        thin_client::ThinClient, tpu_connection::TpuConnection,
     },
-    solana_sdk::signature::Signature,
+    solana_sdk::{signature::Signature, transaction::Transaction},
     std::{
         net::{SocketAddr, ToSocketAddrs},
         sync::Arc,
