@@ -4,12 +4,9 @@ use {
     serde_json::json,
     solana_client::{
         connection_cache::ConnectionCache, rpc_config::RpcSendTransactionConfig,
-        thin_client::ThinClient, tpu_connection::TpuConnection,
+        thin_client::ThinClient,
     },
-    solana_sdk::{
-        client::AsyncClient, signature::Signature, transaction::Transaction,
-        transport::TransportError,
-    },
+    solana_sdk::{client::AsyncClient, signature::Signature, transport::TransportError},
     std::{
         net::{SocketAddr, ToSocketAddrs},
         sync::Arc,
@@ -60,22 +57,33 @@ impl Responder for JsonRpcRes {
     }
 }
 
-impl<T: serde::Serialize> TryFrom<Result<T, TransportError>> for JsonRpcRes {
+impl<T: serde::Serialize> TryFrom<Result<T, JsonRpcError>> for JsonRpcRes {
     type Error = serde_json::Error;
 
-    fn try_from(result: Result<T, TransportError>) -> Result<Self, Self::Error> {
+    fn try_from(result: Result<T, JsonRpcError>) -> Result<Self, Self::Error> {
         Ok(match result {
             Ok(value) => Self::Ok(serde_json::to_value(value)?),
-            Err(error) => Self::Err(serde_json::to_value(error.unwrap())?),
+            // TODO: add custom handle
+            Err(error) => Self::Err(serde_json::Value::String(format!("{error:?}"))),
         })
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum JsonRpcError {
+    #[error("data store disconnected")]
+    TransportError(#[from] TransportError),
+    #[error("data store disconnected")]
+    Base58DecodeError(#[from] bs58::decode::Error),
+    #[error("data store disconnected")]
+    BincodeDeserializeError(#[from] bincode::Error),
+    #[error("data store disconnected")]
+    SerdeError(#[from] serde_json::Error),
+}
+
 /// A bridge between clients and tpu
 pub struct LightBridge {
-    tpu_addr: SocketAddr,
     thin_client: ThinClient,
-    connection_cache: Arc<ConnectionCache>,
 }
 
 impl LightBridge {
@@ -83,39 +91,26 @@ impl LightBridge {
         let connection_cache = Arc::new(ConnectionCache::new(connection_pool_size));
         let thin_client = ThinClient::new(rpc_addr, tpu_addr.clone(), connection_cache.clone());
 
-        Self {
-            thin_client,
-            connection_cache,
-            tpu_addr,
-        }
-    }
-
-    pub fn forward_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Signature, TransportError> {
-        self.thin_client.async_send_transaction(transaction)
+        Self { thin_client }
     }
 
     fn send_transaction(
         &self,
-        params: (String, Option<RpcSendTransactionConfig>),
-    ) -> Result<Signature, TransportError> {
-        let base_58_decoded = bs58::decode(&params.0).into_vec().unwrap();
-        let conn = self.connection_cache.get_connection(&self.tpu_addr);
-        conn.send_wire_transaction_async(base_58_decoded).unwrap();
-        Ok(Signature::new_unique())
+        params: (String, RpcSendTransactionConfig),
+    ) -> Result<Signature, JsonRpcError> {
+        let base_58_decoded = bs58::decode(&params.0).into_vec()?;
+        let transaction = bincode::deserialize(&base_58_decoded)?;
+        Ok(self.thin_client.async_send_transaction(transaction)?)
     }
 
     pub async fn execute_rpc_request(
         &self,
         JsonRpcReq { method, params }: JsonRpcReq,
-    ) -> JsonRpcRes {
+    ) -> Result<serde_json::Value, JsonRpcError> {
         match method {
-            RpcMethod::SendTransaction => self
-                .send_transaction(serde_json::from_value(params).unwrap())
-                .try_into()
-                .unwrap(),
+            RpcMethod::SendTransaction => Ok(serde_json::Value::String(
+                bs58::encode(self.send_transaction(serde_json::from_value(params)?)?).into_string(),
+            )),
             RpcMethod::RequestAirdrop => todo!(),
         }
     }
@@ -138,7 +133,11 @@ impl LightBridge {
         json_rpc_req: web::Json<JsonRpcReq>,
         state: web::Data<Arc<LightBridge>>,
     ) -> JsonRpcRes {
-        state.execute_rpc_request(json_rpc_req.0).await
+        state
+            .execute_rpc_request(json_rpc_req.0)
+            .await
+            .try_into()
+            .unwrap()
     }
 }
 
