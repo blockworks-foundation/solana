@@ -95,9 +95,23 @@ impl LightBridge {
 
 #[cfg(test)]
 mod tests {
+    use std::{time::Duration};
+
+    use solana_sdk::{
+        message::Message,
+        native_token::LAMPORTS_PER_SOL,
+        pubkey::Pubkey,
+        signature::Keypair,
+        signer::Signer,
+        system_instruction::{self},
+        system_program,
+        transaction::Transaction,
+    };
+
+    use crate::encoding::BinaryEncoding;
+
     use {
         crate::bridge::LightBridge,
-        borsh::{BorshDeserialize, BorshSerialize},
     };
 
     const RPC_ADDR: &str = "127.0.0.1:8899";
@@ -112,12 +126,23 @@ mod tests {
             CONNECTION_POOL_SIZE,
         );
 
-        let program_id = Pubkey::new_unique();
+        let _system_program_id = system_program::id();
+
         let payer = Keypair::new();
-        let bankins = BankInstruction::Initialize;
-        let instruction = Instruction::new_with_borsh(program_id, &bankins, vec![]);
+        light_bridge
+            .thin_client
+            .rpc_client()
+            .request_airdrop(&payer.pubkey(), LAMPORTS_PER_SOL * 2)
+            .unwrap();
+
+        std::thread::sleep(Duration::from_secs(2));
+
+        let to_pubkey = Pubkey::new_unique();
+        let instruction =
+            system_instruction::transfer(&payer.pubkey(), &to_pubkey, LAMPORTS_PER_SOL * 1);
 
         let message = Message::new(&[instruction], Some(&payer.pubkey()));
+
         let blockhash = light_bridge
             .thin_client
             .rpc_client()
@@ -125,10 +150,15 @@ mod tests {
             .unwrap();
 
         let tx = Transaction::new(&[&payer], message, blockhash);
-        let x = light_bridge
-            .send_transaction((tx, RpcSendTransactionConfig::default()))
-            .unwrap();
+        let signature = BinaryEncoding::Base58.encode(&tx.signatures[0]);
 
-        println!("{}", x);
+        let tx = BinaryEncoding::Base58.encode(bincode::serialize(&tx).unwrap());
+
+        assert_eq!(
+            light_bridge
+                .send_transaction(tx, Default::default())
+                .unwrap(),
+            signature
+        );
     }
 }
