@@ -1,12 +1,8 @@
-use crate::encoding::BinaryCodecError;
-
-use {
-    crate::configs::SendTransactionConfig,
-    actix_web::{http::StatusCode, HttpResponse, Responder},
-    serde::{Deserialize, Serialize},
-    serde_json::json,
-    solana_sdk::transport::TransportError,
-};
+use crate::{encoding::BinaryCodecError, configs::SendTransactionConfig};
+use actix_web::{http::StatusCode, HttpResponse, Responder};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use solana_sdk::transport::TransportError;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

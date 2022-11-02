@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use solana_sdk::commitment_config::CommitmentLevel;
 use solana_sdk::slot_history::Slot;
-
-
 use crate::encoding::BinaryEncoding;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
