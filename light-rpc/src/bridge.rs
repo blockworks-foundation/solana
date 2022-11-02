@@ -95,24 +95,14 @@ impl LightBridge {
 
 #[cfg(test)]
 mod tests {
-    use std::{time::Duration};
+    use std::time::Duration;
 
     use solana_sdk::{
-        message::Message,
-        native_token::LAMPORTS_PER_SOL,
-        pubkey::Pubkey,
-        signature::Keypair,
-        signer::Signer,
-        system_instruction::{self},
-        system_program,
-        transaction::Transaction,
+        message::Message, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, signature::Keypair,
+        signer::Signer, system_instruction, system_program, transaction::Transaction,
     };
 
-    use crate::encoding::BinaryEncoding;
-
-    use {
-        crate::bridge::LightBridge,
-    };
+    use crate::{bridge::LightBridge, encoding::BinaryEncoding};
 
     const RPC_ADDR: &str = "127.0.0.1:8899";
     const TPU_ADDR: &str = "127.0.0.1:1027";
