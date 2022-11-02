@@ -1,7 +1,7 @@
 use crate::configs::SendTransactionConfig;
 use crate::encoding::BinaryEncoding;
 use crate::rpc::{JsonRpcError, JsonRpcRes, RpcMethod};
-use actix_web::{web, App, HttpServer};
+use actix_web::{web, App, HttpServer, Responder};
 use solana_client::{
     connection_cache::ConnectionCache, thin_client::ThinClient, tpu_connection::TpuConnection,
 };
@@ -63,9 +63,17 @@ impl LightBridge {
     pub async fn start_server(self, addr: impl ToSocketAddrs) -> Result<(), std::io::Error> {
         let bridge = Arc::new(self);
 
+        let json_cfg = web::JsonConfig::default().error_handler(|err, req| {
+            let err = JsonRpcRes::Err(serde_json::Value::String(format!("{err}")))
+                .respond_to(req)
+                .into_body();
+            actix_web::error::ErrorBadRequest(err)
+        });
+
         HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(bridge.clone()))
+                .app_data(json_cfg.clone())
                 .route("/", web::post().to(Self::rpc_route))
         })
         .bind(addr)?

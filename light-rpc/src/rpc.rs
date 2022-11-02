@@ -1,4 +1,6 @@
 use crate::{encoding::BinaryCodecError, configs::SendTransactionConfig};
+
+use actix_web::error::JsonPayloadError;
 use actix_web::{http::StatusCode, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -61,18 +63,14 @@ impl<T: serde::Serialize> TryFrom<Result<T, JsonRpcError>> for JsonRpcRes {
 
 #[derive(thiserror::Error, Debug)]
 pub enum JsonRpcError {
-    #[error("data store disconnected")]
+    #[error("TPU transport error {0}")]
     TransportError(#[from] TransportError),
-    #[error("data store disconnected")]
+    #[error("{0}")]
     BinaryCodecError(#[from] BinaryCodecError),
-    #[error("data store disconnected")]
+    #[error("{0}")]
     BincodeDeserializeError(#[from] bincode::Error),
-    #[error("data store disconnected")]
+    #[error("{0}")]
     SerdeError(#[from] serde_json::Error),
-    #[error("`params` should have at least ${0} arguments(s)")]
-    NotEnoughParams(usize),
-    #[error("Unknown encoding format")]
-    UnknownEncoding,
-    #[error("Error decoding")]
-    ErrorDecoding,
+    #[error("{0}")]
+    JsonPayloadError(#[from] JsonPayloadError)
 }
