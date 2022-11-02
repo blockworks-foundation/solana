@@ -2729,7 +2729,6 @@ dependencies = [
  "actix-web",
  "base64 0.13.1",
  "bincode",
- "borsh",
  "bs58",
  "serde",
  "serde_json",
