@@ -43,7 +43,7 @@ impl LightBridge {
         let conn = self.connection_cache.get_connection(&self.tpu_addr);
         conn.send_wire_transaction_async(transaction)?;
 
-        Ok(String::from_utf8(BinaryEncoding::Base58.encode(signature)).unwrap())
+        Ok(BinaryEncoding::Base58.encode(signature))
     }
 
     /// Serialize params and execute the specified method
