@@ -36,6 +36,7 @@ impl LightBridge {
         transaction: String,
         config: SendTransactionConfig,
     ) -> Result<String, JsonRpcError> {
+        // TODO: handle `preflight` and `retries`
         let transaction = config.encoding.decode(transaction)?;
 
         let signature = bincode::deserialize::<Transaction>(&transaction)?.signatures[0];
@@ -55,7 +56,6 @@ impl LightBridge {
             RpcMethod::SendTransaction(transaction, config) => {
                 Ok(self.send_transaction(transaction, config)?.into())
             }
-            RpcMethod::RequestAirdrop(_) => todo!(),
         }
     }
 

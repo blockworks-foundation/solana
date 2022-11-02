@@ -11,7 +11,6 @@ use solana_sdk::transport::TransportError;
 #[serde(tag = "method", content = "params")]
 pub enum RpcMethod {
     SendTransaction(String, #[serde(default)] SendTransactionConfig),
-    RequestAirdrop(usize),
 }
 
 /// According to <https://www.jsonrpc.org/specification#overview>
