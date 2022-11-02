@@ -1,15 +1,14 @@
-use {
-    crate::rpc::{JsonRpcError, JsonRpcReq, JsonRpcRes, RpcMethod},
-    actix_web::{web, App, HttpServer},
-    solana_client::{
-        connection_cache::ConnectionCache, rpc_config::RpcSendTransactionConfig,
-        thin_client::ThinClient, tpu_connection::TpuConnection,
-    },
-    solana_sdk::{signature::Signature, transaction::Transaction},
-    std::{
-        net::{SocketAddr, ToSocketAddrs},
-        sync::Arc,
-    },
+use crate::configs::SendTransactionConfig;
+use crate::encoding::BinaryEncoding;
+use crate::rpc::{JsonRpcError, JsonRpcRes, RpcMethod};
+use actix_web::{web, App, HttpServer};
+use solana_client::{
+    connection_cache::ConnectionCache, thin_client::ThinClient, tpu_connection::TpuConnection,
+};
+use solana_sdk::transaction::Transaction;
+use std::{
+    net::{SocketAddr, ToSocketAddrs},
+    sync::Arc,
 };
 
 /// A bridge between clients and tpu
@@ -34,24 +33,29 @@ impl LightBridge {
 
     fn send_transaction(
         &self,
-        params: (String, RpcSendTransactionConfig),
-    ) -> Result<Signature, JsonRpcError> {
-        let base_58_decoded = bs58::decode(&params.0).into_vec().unwrap();
-        let transaction: Transaction = bincode::deserialize(&base_58_decoded)?;
+        transaction: String,
+        config: SendTransactionConfig,
+    ) -> Result<String, JsonRpcError> {
+        let transaction = config.encoding.decode(transaction)?;
+
+        let signature = bincode::deserialize::<Transaction>(&transaction)?.signatures[0];
+
         let conn = self.connection_cache.get_connection(&self.tpu_addr);
-        conn.send_wire_transaction_async(base_58_decoded).unwrap();
-        Ok(transaction.signatures[0])
+        conn.send_wire_transaction_async(transaction)?;
+
+        Ok(String::from_utf8(BinaryEncoding::Base58.encode(signature)).unwrap())
     }
 
+    /// Serialize params and execute the specified method
     pub async fn execute_rpc_request(
         &self,
-        JsonRpcReq { method, params }: JsonRpcReq,
+        method: RpcMethod,
     ) -> Result<serde_json::Value, JsonRpcError> {
         match method {
-            RpcMethod::SendTransaction => Ok(serde_json::Value::String(
-                bs58::encode(self.send_transaction(serde_json::from_value(params)?)?).into_string(),
-            )),
-            RpcMethod::RequestAirdrop => todo!(),
+            RpcMethod::SendTransaction(transaction, config) => {
+                Ok(self.send_transaction(transaction, config)?.into())
+            }
+            RpcMethod::RequestAirdrop(_) => todo!(),
         }
     }
 
@@ -70,7 +74,7 @@ impl LightBridge {
     }
 
     async fn rpc_route(
-        json_rpc_req: web::Json<JsonRpcReq>,
+        json_rpc_req: web::Json<RpcMethod>,
         state: web::Data<Arc<LightBridge>>,
     ) -> JsonRpcRes {
         state
@@ -83,7 +87,6 @@ impl LightBridge {
 
 #[cfg(test)]
 mod tests {
-
     use {
         crate::bridge::LightBridge,
         borsh::{BorshDeserialize, BorshSerialize},
@@ -93,47 +96,31 @@ mod tests {
     const TPU_ADDR: &str = "127.0.0.1:1027";
     const CONNECTION_POOL_SIZE: usize = 1;
 
-    #[derive(BorshSerialize, BorshDeserialize)]
-    enum BankInstruction {
-        Initialize,
-        Deposit { lamports: u64 },
-        Withdraw { lamports: u64 },
-    }
-
     #[test]
-    fn initialize_light_bridge() {
-        let _light_bridge = LightBridge::new(
+    fn test_send_transaction() {
+        let light_bridge = LightBridge::new(
             RPC_ADDR.parse().unwrap(),
             TPU_ADDR.parse().unwrap(),
             CONNECTION_POOL_SIZE,
         );
+
+        let program_id = Pubkey::new_unique();
+        let payer = Keypair::new();
+        let bankins = BankInstruction::Initialize;
+        let instruction = Instruction::new_with_borsh(program_id, &bankins, vec![]);
+
+        let message = Message::new(&[instruction], Some(&payer.pubkey()));
+        let blockhash = light_bridge
+            .thin_client
+            .rpc_client()
+            .get_latest_blockhash()
+            .unwrap();
+
+        let tx = Transaction::new(&[&payer], message, blockhash);
+        let x = light_bridge
+            .send_transaction((tx, RpcSendTransactionConfig::default()))
+            .unwrap();
+
+        println!("{}", x);
     }
-
-    //#[test]
-    //fn test_forward_transaction() {
-    //    let light_bridge = LightBridge::new(
-    //        RPC_ADDR.parse().unwrap(),
-    //        TPU_ADDR.parse().unwrap(),
-    //        CONNECTION_POOL_SIZE,
-    //    );
-
-    //    let program_id = Pubkey::new_unique();
-    //    let payer = Keypair::new();
-    //    let bankins = BankInstruction::Initialize;
-    //    let instruction = Instruction::new_with_borsh(program_id, &bankins, vec![]);
-
-    //    let message = Message::new(&[instruction], Some(&payer.pubkey()));
-    //    let blockhash = light_bridge
-    //        .thin_client
-    //        .rpc_client()
-    //        .get_latest_blockhash()
-    //        .unwrap();
-
-    //    let tx = Transaction::new(&[&payer], message, blockhash);
-    //    let x = light_bridge
-    //        .send_transaction((tx, RpcSendTransactionConfig::default()))
-    //        .unwrap();
-
-    //    println!("{}", x);
-    //}
 }

@@ -1,4 +1,7 @@
+use crate::encoding::BinaryCodecError;
+
 use {
+    crate::configs::SendTransactionConfig,
     actix_web::{http::StatusCode, HttpResponse, Responder},
     serde::{Deserialize, Serialize},
     serde_json::json,
@@ -7,16 +10,17 @@ use {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(tag = "method", content = "params")]
 pub enum RpcMethod {
-    SendTransaction,
-    RequestAirdrop,
+    SendTransaction(String, #[serde(default)] SendTransactionConfig),
+    RequestAirdrop(usize),
 }
 
 /// According to <https://www.jsonrpc.org/specification#overview>
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JsonRpcReq {
     pub method: RpcMethod,
-    pub params: serde_json::Value,
+    pub params: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -64,9 +68,15 @@ pub enum JsonRpcError {
     #[error("data store disconnected")]
     TransportError(#[from] TransportError),
     #[error("data store disconnected")]
-    Base58DecodeError(#[from] bs58::decode::Error),
+    BinaryCodecError(#[from] BinaryCodecError),
     #[error("data store disconnected")]
     BincodeDeserializeError(#[from] bincode::Error),
     #[error("data store disconnected")]
     SerdeError(#[from] serde_json::Error),
+    #[error("`params` should have at least ${0} arguments(s)")]
+    NotEnoughParams(usize),
+    #[error("Unknown encoding format")]
+    UnknownEncoding,
+    #[error("Error decoding")]
+    ErrorDecoding,
 }
