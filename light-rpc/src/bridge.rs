@@ -116,8 +116,6 @@ mod tests {
             CONNECTION_POOL_SIZE,
         );
 
-        let _system_program_id = system_program::id();
-
         let payer = Keypair::new();
         light_bridge
             .thin_client
