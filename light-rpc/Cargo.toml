@@ -16,3 +16,8 @@ thiserror = "1.0.37"
 base64 = "0.13.1"
 futures = "0.3.25"
 derive_more = { version = "0.99.17", default-features = false, features = ["deref", "deref_mut"] }
+
+[[bench]]
+name="tps"
+harness=false
+

@@ -18,9 +18,9 @@ use std::{
 /// A bridge between clients and tpu
 pub struct LightBridge {
     #[allow(dead_code)]
-    thin_client: ThinClient,
-    tpu_addr: SocketAddr,
-    connection_cache: Arc<ConnectionCache>,
+    pub thin_client: ThinClient,
+    pub tpu_addr: SocketAddr,
+    pub connection_cache: Arc<ConnectionCache>,
 }
 
 impl LightBridge {
@@ -35,7 +35,7 @@ impl LightBridge {
         }
     }
 
-    fn send_transaction(
+    pub fn send_transaction(
         &self,
         transaction: String,
         SendTransactionConfig {
@@ -58,7 +58,7 @@ impl LightBridge {
             0 => (),
             max_retries => {
                 tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(Duration::from_millis(10));
+                    let mut interval = tokio::time::interval(Duration::from_millis(100));
 
                     for _ in 0..max_retries {
                         interval.tick().await;
@@ -137,8 +137,8 @@ mod tests {
     const TPU_ADDR: &str = "127.0.0.1:1027";
     const CONNECTION_POOL_SIZE: usize = 1;
 
-    #[test]
-    fn test_send_transaction() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_send_transaction() {
         let light_bridge = LightBridge::new(
             RPC_ADDR.parse().unwrap(),
             TPU_ADDR.parse().unwrap(),
@@ -167,7 +167,8 @@ mod tests {
             .unwrap();
 
         let tx = Transaction::new(&[&payer], message, blockhash);
-        let signature = BinaryEncoding::Base58.encode(tx.signatures[0]);
+        let signature = tx.signatures[0];
+        let encoded_signature = BinaryEncoding::Base58.encode(signature.clone());
 
         let tx = BinaryEncoding::Base58.encode(bincode::serialize(&tx).unwrap());
 
@@ -175,7 +176,23 @@ mod tests {
             light_bridge
                 .send_transaction(tx, Default::default())
                 .unwrap(),
-            signature
+            encoded_signature
         );
+
+        std::thread::sleep(Duration::from_secs(5));
+
+        let mut passed = false;
+
+        for _ in 0..100 {
+            passed = light_bridge
+                .thin_client
+                .rpc_client()
+                .confirm_transaction(&signature)
+                .unwrap();
+
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        passed.then_some(()).unwrap();
     }
 }
