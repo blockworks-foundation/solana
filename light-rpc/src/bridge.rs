@@ -1,7 +1,6 @@
 use crate::configs::SendTransactionConfig;
 use crate::encoding::BinaryEncoding;
 use crate::rpc::{JsonRpcError, JsonRpcRes, RpcMethod};
-use crate::worker::{LightRpcWorker, TransactionToRetry};
 use actix_web::{web, App, HttpServer, Responder};
 
 use solana_client::{
@@ -10,6 +9,7 @@ use solana_client::{
 
 use solana_sdk::transaction::Transaction;
 
+use std::time::Duration;
 use std::{
     net::{SocketAddr, ToSocketAddrs},
     sync::Arc,
@@ -21,7 +21,6 @@ pub struct LightBridge {
     thin_client: ThinClient,
     tpu_addr: SocketAddr,
     connection_cache: Arc<ConnectionCache>,
-    worker: LightRpcWorker,
 }
 
 impl LightBridge {
@@ -32,12 +31,11 @@ impl LightBridge {
         Self {
             thin_client,
             tpu_addr,
-            worker: LightRpcWorker::from(connection_cache.clone()),
             connection_cache,
         }
     }
 
-    async fn send_transaction(
+    fn send_transaction(
         &self,
         transaction: String,
         SendTransactionConfig {
@@ -51,6 +49,7 @@ impl LightBridge {
         let wire_transaction = encoding.decode(transaction)?;
 
         let signature = bincode::deserialize::<Transaction>(&wire_transaction)?.signatures[0];
+        let signature = BinaryEncoding::Base58.encode(signature);
 
         let conn = self.connection_cache.get_connection(&self.tpu_addr);
         conn.send_wire_transaction_async(wire_transaction.clone())?;
@@ -58,16 +57,23 @@ impl LightBridge {
         match max_retries.unwrap_or(5) {
             0 => (),
             max_retries => {
-                self.worker
-                    .enque(TransactionToRetry {
-                        wire_transaction,
-                        max_retries,
-                    })
-                    .await
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(Duration::from_millis(10));
+
+                    for _ in 0..max_retries {
+                        interval.tick().await;
+
+                        if let Err(_err) =
+                            conn.send_wire_transaction_async(wire_transaction.clone())
+                        {
+                            break;
+                        }
+                    }
+                });
             }
         }
 
-        Ok(BinaryEncoding::Base58.encode(signature))
+        Ok(signature)
     }
 
     /// Serialize params and execute the specified method
@@ -77,14 +83,13 @@ impl LightBridge {
     ) -> Result<serde_json::Value, JsonRpcError> {
         match method {
             RpcMethod::SendTransaction(transaction, config) => {
-                Ok(self.send_transaction(transaction, config).await?.into())
+                Ok(self.send_transaction(transaction, config)?.into())
             }
         }
     }
 
     /// List for `JsonRpc` requests
     pub async fn start_server(self, addr: impl ToSocketAddrs) -> Result<(), std::io::Error> {
-        let worker = self.worker.clone();
         let bridge = Arc::new(self);
 
         let json_cfg = web::JsonConfig::default().error_handler(|err, req| {
@@ -94,16 +99,15 @@ impl LightBridge {
             actix_web::error::ErrorBadRequest(err)
         });
 
-        let server = HttpServer::new(move || {
+        HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(bridge.clone()))
                 .app_data(json_cfg.clone())
                 .route("/", web::post().to(Self::rpc_route))
         })
         .bind(addr)?
-        .run();
-
-        futures::join!(server, worker).0
+        .run()
+        .await
     }
 
     async fn rpc_route(
@@ -152,7 +156,7 @@ mod tests {
 
         let to_pubkey = Pubkey::new_unique();
         let instruction =
-            system_instruction::transfer(&payer.pubkey(), &to_pubkey, LAMPORTS_PER_SOL * 1);
+            system_instruction::transfer(&payer.pubkey(), &to_pubkey, LAMPORTS_PER_SOL);
 
         let message = Message::new(&[instruction], Some(&payer.pubkey()));
 
@@ -163,7 +167,7 @@ mod tests {
             .unwrap();
 
         let tx = Transaction::new(&[&payer], message, blockhash);
-        let signature = BinaryEncoding::Base58.encode(&tx.signatures[0]);
+        let signature = BinaryEncoding::Base58.encode(tx.signatures[0]);
 
         let tx = BinaryEncoding::Base58.encode(bincode::serialize(&tx).unwrap());
 
