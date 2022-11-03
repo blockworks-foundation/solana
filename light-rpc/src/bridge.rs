@@ -1,11 +1,15 @@
 use crate::configs::SendTransactionConfig;
 use crate::encoding::BinaryEncoding;
 use crate::rpc::{JsonRpcError, JsonRpcRes, RpcMethod};
+use crate::worker::{LightRpcWorker, TransactionToRetry};
 use actix_web::{web, App, HttpServer, Responder};
+
 use solana_client::{
     connection_cache::ConnectionCache, thin_client::ThinClient, tpu_connection::TpuConnection,
 };
+
 use solana_sdk::transaction::Transaction;
+
 use std::{
     net::{SocketAddr, ToSocketAddrs},
     sync::Arc,
@@ -17,6 +21,7 @@ pub struct LightBridge {
     thin_client: ThinClient,
     tpu_addr: SocketAddr,
     connection_cache: Arc<ConnectionCache>,
+    worker: LightRpcWorker,
 }
 
 impl LightBridge {
@@ -27,22 +32,40 @@ impl LightBridge {
         Self {
             thin_client,
             tpu_addr,
+            worker: LightRpcWorker::from(connection_cache.clone()),
             connection_cache,
         }
     }
 
-    fn send_transaction(
+    async fn send_transaction(
         &self,
         transaction: String,
-        config: SendTransactionConfig,
+        SendTransactionConfig {
+            skip_preflight: _,       //TODO:
+            preflight_commitment: _, //TODO:
+            encoding,
+            max_retries,
+            min_context_slot: _, //TODO:
+        }: SendTransactionConfig,
     ) -> Result<String, JsonRpcError> {
-        // TODO: handle `preflight` and `retries`
-        let transaction = config.encoding.decode(transaction)?;
+        let wire_transaction = encoding.decode(transaction)?;
 
-        let signature = bincode::deserialize::<Transaction>(&transaction)?.signatures[0];
+        let signature = bincode::deserialize::<Transaction>(&wire_transaction)?.signatures[0];
 
         let conn = self.connection_cache.get_connection(&self.tpu_addr);
-        conn.send_wire_transaction_async(transaction)?;
+        conn.send_wire_transaction_async(wire_transaction.clone())?;
+
+        match max_retries.unwrap_or(5) {
+            0 => (),
+            max_retries => {
+                self.worker
+                    .enque(TransactionToRetry {
+                        wire_transaction,
+                        max_retries,
+                    })
+                    .await
+            }
+        }
 
         Ok(BinaryEncoding::Base58.encode(signature))
     }
@@ -54,13 +77,14 @@ impl LightBridge {
     ) -> Result<serde_json::Value, JsonRpcError> {
         match method {
             RpcMethod::SendTransaction(transaction, config) => {
-                Ok(self.send_transaction(transaction, config)?.into())
+                Ok(self.send_transaction(transaction, config).await?.into())
             }
         }
     }
 
     /// List for `JsonRpc` requests
     pub async fn start_server(self, addr: impl ToSocketAddrs) -> Result<(), std::io::Error> {
+        let worker = self.worker.clone();
         let bridge = Arc::new(self);
 
         let json_cfg = web::JsonConfig::default().error_handler(|err, req| {
@@ -70,15 +94,16 @@ impl LightBridge {
             actix_web::error::ErrorBadRequest(err)
         });
 
-        HttpServer::new(move || {
+        let server = HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(bridge.clone()))
                 .app_data(json_cfg.clone())
                 .route("/", web::post().to(Self::rpc_route))
         })
         .bind(addr)?
-        .run()
-        .await
+        .run();
+
+        futures::join!(server, worker).0
     }
 
     async fn rpc_route(
@@ -99,7 +124,7 @@ mod tests {
 
     use solana_sdk::{
         message::Message, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, signature::Keypair,
-        signer::Signer, system_instruction, system_program, transaction::Transaction,
+        signer::Signer, system_instruction, transaction::Transaction,
     };
 
     use crate::{bridge::LightBridge, encoding::BinaryEncoding};
