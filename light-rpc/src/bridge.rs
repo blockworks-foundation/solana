@@ -197,7 +197,7 @@ mod tests {
 
         let tx = Transaction::new(&[&payer], message, blockhash);
         let signature = tx.signatures[0];
-        let encoded_signature = BinaryEncoding::Base58.encode(signature.clone());
+        let encoded_signature = BinaryEncoding::Base58.encode(signature);
 
         let tx = BinaryEncoding::Base58.encode(bincode::serialize(&tx).unwrap());
 
