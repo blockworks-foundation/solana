@@ -1,184 +1,76 @@
-use {
-    rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator},
-    solana_client::{
-        client_error::ClientError, connection_cache::ConnectionCache, rpc_response::Response,
-        thin_client::ThinClient,
-    },
-    solana_sdk::{
-        client::AsyncClient,
-        commitment_config::CommitmentConfig,
-        native_token::LAMPORTS_PER_SOL,
-        signature::Signature,
-        signer::{keypair::Keypair, Signer},
-        system_instruction,
-        transaction::Transaction,
-        transport::TransportError,
-    },
-    std::{net::SocketAddr, sync::Arc, thread, time::Duration},
-};
+use crate::{configs::SendTransactionConfig, encoding::BinaryCodecError};
 
-pub enum ConfirmationStrategy {
-    RpcConfirm,
+use actix_web::error::JsonPayloadError;
+use actix_web::{http::StatusCode, HttpResponse, Responder};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use solana_sdk::transport::TransportError;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(tag = "method", content = "params")]
+pub enum RpcMethod {
+    SendTransaction(String, #[serde(default)] SendTransactionConfig),
 }
 
-pub struct LightRpc {
-    pub connection_cache: Arc<ConnectionCache>,
-    pub thin_client: ThinClient,
+/// According to <https://www.jsonrpc.org/specification#overview>
+#[derive(Debug, Deserialize, Serialize)]
+pub struct JsonRpcReq {
+    pub method: RpcMethod,
+    pub params: Vec<serde_json::Value>,
 }
 
-impl LightRpc {
-    pub fn new(rpc_addr: SocketAddr, tpu_addr: SocketAddr, connection_pool_size: usize) -> Self {
-        let connection_cache = Arc::new(ConnectionCache::new(connection_pool_size));
-        let thin_client = ThinClient::new(rpc_addr, tpu_addr, connection_cache.clone());
-
-        Self {
-            connection_cache,
-            thin_client,
-        }
-    }
-
-    pub fn forward_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Signature, TransportError> {
-        self.thin_client.async_send_transaction(transaction)
-    }
-
-    pub fn forward_transactions(
-        &self,
-        transactions: Vec<Transaction>,
-    ) -> Vec<Result<Signature, TransportError>> {
-        transactions
-            .par_iter()
-            .map(|tx| self.forward_transaction(tx.clone()))
-            .collect()
-    }
-
-    pub fn confirm_transaction(
-        &self,
-        signature: &Signature,
-        commitment_config: CommitmentConfig,
-        confirmation_strategy: ConfirmationStrategy,
-    ) -> Result<Response<bool>, ClientError> {
-        match confirmation_strategy {
-            ConfirmationStrategy::RpcConfirm => self
-                .thin_client
-                .rpc_client()
-                .confirm_transaction_with_commitment(signature, commitment_config),
-        }
-    }
+#[derive(Debug, Deserialize, Serialize)]
+pub enum JsonRpcRes {
+    Err(serde_json::Value),
+    Ok(serde_json::Value),
 }
 
-//Two helper methods to forward a transaction and confirm it
-pub fn forward_transaction_sender(
-    light_rpc: &LightRpc,
-    lamports: u64,
-    num_transactions: u64,
-) -> Vec<Signature> {
-    let mut txs = vec![];
+impl Responder for JsonRpcRes {
+    type Body = String;
 
-    for i in 0..num_transactions {
-        //generate new keypair for each transaction
-        let alice = Keypair::new();
-        let bob = Keypair::new();
-        let frompubkey = Signer::pubkey(&alice);
-        let topubkey = Signer::pubkey(&bob);
+    fn respond_to(self, _: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        let mut res = json!({
+            "jsonrpc" : "2.0",
+            // TODO: add id
+        });
 
-        light_rpc
-            .thin_client
-            .rpc_client()
-            .request_airdrop(&frompubkey, LAMPORTS_PER_SOL)
-            .unwrap();
-        let ix = system_instruction::transfer(&frompubkey, &topubkey, lamports);
-        let recent_blockhash = light_rpc
-            .thin_client
-            .rpc_client()
-            .get_latest_blockhash()
-            .expect("Failed to get latest blockhash.");
-        let txn = Transaction::new_signed_with_payer(
-            &[ix],
-            Some(&frompubkey),
-            &[&alice],
-            recent_blockhash,
-        );
-        txs.push(txn);
-    }
-
-    let p = light_rpc.forward_transactions(txs);
-    p.into_iter().map(|p| p.unwrap()).collect()
-}
-#[derive(Debug)]
-pub struct ConfirmationStatus {
-    signature: Signature,
-    confirmation_status: bool,
-}
-pub fn confirm_transaction_sender(
-    light_rpc: &LightRpc,
-    signatures: Vec<Signature>,
-    mut retries: u16,
-) -> Vec<ConfirmationStatus> {
-    let x = signatures
-        .par_iter()
-        .map(|signature| {
-            loop {
-                let confirmed = light_rpc
-                    .confirm_transaction(
-                        signature,
-                        CommitmentConfig::confirmed(),
-                        ConfirmationStrategy::RpcConfirm,
-                    )
-                    .unwrap()
-                    .value;
-                if confirmed {
-                    break ConfirmationStatus {
-                        signature: *signature,
-                        confirmation_status: confirmed,
-                    };
-                }
-                //thread::sleep(Duration::from_millis(500))
+        match self {
+            Self::Err(error) => {
+                res["error"] = error;
+                HttpResponse::new(StatusCode::from_u16(500).unwrap()).set_body(res.to_string())
             }
+            Self::Ok(result) => {
+                res["result"] = result;
+                HttpResponse::new(StatusCode::OK).set_body(res.to_string())
+            }
+        }
+    }
+}
+
+impl<T: serde::Serialize> TryFrom<Result<T, JsonRpcError>> for JsonRpcRes {
+    type Error = serde_json::Error;
+
+    fn try_from(result: Result<T, JsonRpcError>) -> Result<Self, Self::Error> {
+        Ok(match result {
+            Ok(value) => Self::Ok(serde_json::to_value(value)?),
+            // TODO: add custom handle
+            Err(error) => Self::Err(serde_json::Value::String(format!("{error:?}"))),
         })
-        .collect();
-    x
-}
-
-#[cfg(test)]
-mod tests {
-    use {
-        super::*,
-        solana_sdk::{
-            native_token::LAMPORTS_PER_SOL, signature::Signer, signer::keypair::Keypair,
-            system_instruction, transaction::Transaction,
-        },
-        std::{thread, time::Duration},
-    };
-
-    const RPC_ADDR: &str = "127.0.0.1:8899";
-    const TPU_ADDR: &str = "127.0.0.1:1027";
-    const CONNECTION_POOL_SIZE: usize = 1;
-
-    #[test]
-    fn initialize_light_rpc() {
-        let _light_rpc = LightRpc::new(
-            RPC_ADDR.parse().unwrap(),
-            TPU_ADDR.parse().unwrap(),
-            CONNECTION_POOL_SIZE,
-        );
-    }
-    #[test]
-    fn test_forward_transaction_confirm_transaction() {
-        let light_rpc = LightRpc::new(
-            RPC_ADDR.parse().unwrap(),
-            TPU_ADDR.parse().unwrap(),
-            CONNECTION_POOL_SIZE,
-        );
-        let alice = Keypair::new();
-        let bob = Keypair::new();
-
-        let lamports = 1_000_000;
-
-        let sig = forward_transaction_sender(&light_rpc, lamports, 100);
-        let x = confirm_transaction_sender(&light_rpc, sig, 300);
-        println!("{:#?}", x);
     }
 }
+
+#[derive(thiserror::Error, Debug)]
+pub enum JsonRpcError {
+    #[error("TPU transport error {0}")]
+    TransportError(#[from] TransportError),
+    #[error("{0}")]
+    BinaryCodecError(#[from] BinaryCodecError),
+    #[error("{0}")]
+    BincodeDeserializeError(#[from] bincode::Error),
+    #[error("{0}")]
+    SerdeError(#[from] serde_json::Error),
+    #[error("{0}")]
+    JsonPayloadError(#[from] JsonPayloadError),
+}
+
