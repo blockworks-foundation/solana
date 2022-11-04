@@ -19,9 +19,9 @@ use std::{
 /// A bridge between clients and tpu
 pub struct LightBridge {
     #[allow(dead_code)]
-    thin_client: ThinClient,
-    tpu_addr: SocketAddr,
-    connection_cache: Arc<ConnectionCache>,
+    pub thin_client: ThinClient,
+    pub tpu_addr: SocketAddr,
+    pub connection_cache: Arc<ConnectionCache>,
 }
 
 impl LightBridge {
@@ -36,7 +36,7 @@ impl LightBridge {
         }
     }
 
-    fn send_transaction(
+    pub fn send_transaction(
         &self,
         transaction: String,
         SendTransactionConfig {
@@ -77,7 +77,7 @@ impl LightBridge {
         Ok(signature)
     }
 
-    fn get_version(&self) -> RpcVersionInfo {
+    pub fn get_version(&self) -> RpcVersionInfo {
         let version = solana_version::Version::default();
         RpcVersionInfo {
             solana_core: version.to_string(),
