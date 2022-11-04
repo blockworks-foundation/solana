@@ -63,14 +63,14 @@ impl<T: serde::Serialize> TryFrom<Result<T, JsonRpcError>> for JsonRpcRes {
 
 #[derive(thiserror::Error, Debug)]
 pub enum JsonRpcError {
-    #[error("TPU transport error {0}")]
+    #[error("TransportError {0}")]
     TransportError(#[from] TransportError),
-    #[error("{0}")]
+    #[error("BinaryCodecError {0}")]
     BinaryCodecError(#[from] BinaryCodecError),
-    #[error("{0}")]
+    #[error("BincodeDeserializeError {0}")]
     BincodeDeserializeError(#[from] bincode::Error),
-    #[error("{0}")]
+    #[error("SerdeError {0}")]
     SerdeError(#[from] serde_json::Error),
-    #[error("{0}")]
+    #[error("JsonPayloadError {0}")]
     JsonPayloadError(#[from] JsonPayloadError),
 }

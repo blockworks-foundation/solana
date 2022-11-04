@@ -10,11 +10,11 @@ pub enum BinaryEncoding {
 
 #[derive(thiserror::Error, Debug)]
 pub enum BinaryCodecError {
-    #[error("{0}")]
+    #[error("Base58DecodeError {0}")]
     Base58DecodeError(#[from] bs58::decode::Error),
-    #[error("{0}")]
+    #[error("Base58EncodeError {0}")]
     Base58EncodeError(#[from] bs58::encode::Error),
-    #[error("{0}")]
+    #[error("Base64DecodeError {0}")]
     Base64DecodeError(#[from] base64::DecodeError),
 }
 
