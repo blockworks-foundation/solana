@@ -3,6 +3,7 @@ use crate::encoding::BinaryEncoding;
 use crate::rpc::{JsonRpcError, JsonRpcRes, RpcMethod};
 use actix_web::{web, App, HttpServer, Responder};
 
+use solana_client::rpc_response::RpcVersionInfo;
 use solana_client::{
     connection_cache::ConnectionCache, thin_client::ThinClient, tpu_connection::TpuConnection,
 };
@@ -18,9 +19,9 @@ use std::{
 /// A bridge between clients and tpu
 pub struct LightBridge {
     #[allow(dead_code)]
-    thin_client: ThinClient,
-    tpu_addr: SocketAddr,
-    connection_cache: Arc<ConnectionCache>,
+    pub thin_client: ThinClient,
+    pub tpu_addr: SocketAddr,
+    pub connection_cache: Arc<ConnectionCache>,
 }
 
 impl LightBridge {
@@ -35,7 +36,7 @@ impl LightBridge {
         }
     }
 
-    fn send_transaction(
+    pub fn send_transaction(
         &self,
         transaction: String,
         SendTransactionConfig {
@@ -58,7 +59,7 @@ impl LightBridge {
             0 => (),
             max_retries => {
                 tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(Duration::from_millis(10));
+                    let mut interval = tokio::time::interval(Duration::from_millis(100));
 
                     for _ in 0..max_retries {
                         interval.tick().await;
@@ -76,6 +77,14 @@ impl LightBridge {
         Ok(signature)
     }
 
+    pub fn get_version(&self) -> RpcVersionInfo {
+        let version = solana_version::Version::default();
+        RpcVersionInfo {
+            solana_core: version.to_string(),
+            feature_set: Some(version.feature_set),
+        }
+    }
+
     /// Serialize params and execute the specified method
     pub async fn execute_rpc_request(
         &self,
@@ -85,6 +94,7 @@ impl LightBridge {
             RpcMethod::SendTransaction(transaction, config) => {
                 Ok(self.send_transaction(transaction, config)?.into())
             }
+            RpcMethod::GetVersion => Ok(serde_json::to_value(self.get_version()).unwrap()),
         }
     }
 
@@ -126,6 +136,7 @@ impl LightBridge {
 mod tests {
     use std::time::Duration;
 
+    use solana_client::rpc_response::RpcVersionInfo;
     use solana_sdk::{
         message::Message, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, signature::Keypair,
         signer::Signer, system_instruction, transaction::Transaction,
@@ -138,7 +149,25 @@ mod tests {
     const CONNECTION_POOL_SIZE: usize = 1;
 
     #[test]
-    fn test_send_transaction() {
+    fn get_version() {
+        let light_bridge = LightBridge::new(
+            RPC_ADDR.parse().unwrap(),
+            TPU_ADDR.parse().unwrap(),
+            CONNECTION_POOL_SIZE,
+        );
+
+        let RpcVersionInfo {
+            solana_core,
+            feature_set,
+        } = light_bridge.get_version();
+        let version_crate = solana_version::Version::default();
+
+        assert_eq!(solana_core, version_crate.to_string());
+        assert_eq!(feature_set.unwrap(), version_crate.feature_set);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_send_transaction() {
         let light_bridge = LightBridge::new(
             RPC_ADDR.parse().unwrap(),
             TPU_ADDR.parse().unwrap(),
@@ -167,7 +196,8 @@ mod tests {
             .unwrap();
 
         let tx = Transaction::new(&[&payer], message, blockhash);
-        let signature = BinaryEncoding::Base58.encode(tx.signatures[0]);
+        let signature = tx.signatures[0];
+        let encoded_signature = BinaryEncoding::Base58.encode(signature.clone());
 
         let tx = BinaryEncoding::Base58.encode(bincode::serialize(&tx).unwrap());
 
@@ -175,7 +205,23 @@ mod tests {
             light_bridge
                 .send_transaction(tx, Default::default())
                 .unwrap(),
-            signature
+            encoded_signature
         );
+
+        std::thread::sleep(Duration::from_secs(5));
+
+        let mut passed = false;
+
+        for _ in 0..100 {
+            passed = light_bridge
+                .thin_client
+                .rpc_client()
+                .confirm_transaction(&signature)
+                .unwrap();
+
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        passed.then_some(()).unwrap();
     }
 }
