@@ -147,7 +147,7 @@ fn confirm_transactions(rpc_client: &RpcClient, mut signatures: Vec<Signature>) 
             eprintln!("confirming {}", signature);
             if rpc_client
                 .confirm_transaction(&signature)
-                .expect("Error confirming trsnsaction")
+                .expect("Error confirming TX")
             {
                 eprintln!("signature finalized: {signature}");
             } else {
