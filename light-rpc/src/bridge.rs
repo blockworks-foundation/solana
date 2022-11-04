@@ -3,6 +3,7 @@ use crate::encoding::BinaryEncoding;
 use crate::rpc::{JsonRpcError, JsonRpcRes, RpcMethod};
 use actix_web::{web, App, HttpServer, Responder};
 
+use solana_client::rpc_response::RpcVersionInfo;
 use solana_client::{
     connection_cache::ConnectionCache, thin_client::ThinClient, tpu_connection::TpuConnection,
 };
@@ -76,6 +77,14 @@ impl LightBridge {
         Ok(signature)
     }
 
+    pub fn get_version(&self) -> RpcVersionInfo {
+        let version = solana_version::Version::default();
+        RpcVersionInfo {
+            solana_core: version.to_string(),
+            feature_set: Some(version.feature_set),
+        }
+    }
+
     /// Serialize params and execute the specified method
     pub async fn execute_rpc_request(
         &self,
@@ -85,6 +94,7 @@ impl LightBridge {
             RpcMethod::SendTransaction(transaction, config) => {
                 Ok(self.send_transaction(transaction, config)?.into())
             }
+            RpcMethod::GetVersion => Ok(serde_json::to_value(self.get_version()).unwrap()),
         }
     }
 
@@ -126,6 +136,7 @@ impl LightBridge {
 mod tests {
     use std::time::Duration;
 
+    use solana_client::rpc_response::RpcVersionInfo;
     use solana_sdk::{
         message::Message, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, signature::Keypair,
         signer::Signer, system_instruction, transaction::Transaction,
@@ -136,6 +147,24 @@ mod tests {
     const RPC_ADDR: &str = "127.0.0.1:8899";
     const TPU_ADDR: &str = "127.0.0.1:1027";
     const CONNECTION_POOL_SIZE: usize = 1;
+
+    #[test]
+    fn get_version() {
+        let light_bridge = LightBridge::new(
+            RPC_ADDR.parse().unwrap(),
+            TPU_ADDR.parse().unwrap(),
+            CONNECTION_POOL_SIZE,
+        );
+
+        let RpcVersionInfo {
+            solana_core,
+            feature_set,
+        } = light_bridge.get_version();
+        let version_crate = solana_version::Version::default();
+
+        assert_eq!(solana_core, version_crate.to_string());
+        assert_eq!(feature_set.unwrap(), version_crate.feature_set);
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_send_transaction() {
