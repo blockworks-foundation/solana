@@ -15,7 +15,7 @@ pub enum BinaryCodecError {
     #[error("{0}")]
     Base58EncodeError(#[from] bs58::encode::Error),
     #[error("{0}")]
-    Base64DecodeError(#[from] base64::DecodeError) 
+    Base64DecodeError(#[from] base64::DecodeError),
 }
 
 impl BinaryEncoding {

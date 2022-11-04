@@ -73,4 +73,3 @@ pub enum JsonRpcError {
     #[error("{0}")]
     JsonPayloadError(#[from] JsonPayloadError),
 }
-
