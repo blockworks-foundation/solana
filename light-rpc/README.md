@@ -24,3 +24,16 @@ $ cd ~ && solana-test-validator
 $ cargo test
 ```
 
+## Bench
+
+*make sure `solana-test-validator` is running in the background*
+```bash
+$ cd ~ && solana-test-validator 
+```
+
+*run `light-rpc` bench*
+```bash
+$ cargo bench
+```
+
+Find a new file named `metrics.csv` in the project root.
