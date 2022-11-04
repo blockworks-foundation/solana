@@ -140,7 +140,7 @@ fn send_funds_to_random_accounts(
 }
 
 fn confirm_transactions(rpc_client: &RpcClient, mut signatures: Vec<Signature>) {
-    let mut retry_signarues = Vec::with_capacity(signatures.len());
+    let mut signatures_to_retry = Vec::with_capacity(signatures.len());
 
     loop {
         for signature in signatures {
@@ -151,16 +151,16 @@ fn confirm_transactions(rpc_client: &RpcClient, mut signatures: Vec<Signature>) 
             {
                 eprintln!("signature finalized: {signature}");
             } else {
-                retry_signarues.push(signature);
+                signatures_to_retry.push(signature);
             }
         }
 
-        if retry_signarues.is_empty() {
+        if signatures_to_retry.is_empty() {
             return;
         }
 
-        signatures = retry_signarues.clone();
-        retry_signarues.clear();
+        signatures = signatures_to_retry.clone();
+        signatures_to_retry.clear();
 
         std::thread::sleep(Duration::from_millis(1000));
     }
