@@ -294,9 +294,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.66"
+version = "1.0.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "216261ddc8289130e551ddcd5ce8a064710c0d064a4d2895c67151c92b5443f6"
+checksum = "bb07d2053ccdbe10e2af2995a2f116c1330396493dc1269f6a91d0ae82e19704"
 
 [[package]]
 name = "arc-swap"
@@ -882,7 +882,7 @@ checksum = "3abb7553d5b9b8421c6de7cb02606ff15e0c6eea7d8eadd75ef013fd636bec36"
 dependencies = [
  "camino",
  "cargo-platform",
- "semver",
+ "semver 1.0.14",
  "serde",
  "serde_json",
 ]
@@ -893,7 +893,7 @@ version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c24dab4283a142afa2fdca129b80ad2c6284e073930f964c3a1293c225ee39a"
 dependencies = [
- "rustc_version",
+ "rustc_version 0.4.0",
 ]
 
 [[package]]
@@ -1365,14 +1365,14 @@ checksum = "6e5c37193a1db1d8ed868c03ec7b152175f26160a5b740e5e484143877e0adf0"
 
 [[package]]
 name = "derive_more"
-version = "0.99.17"
+version = "0.99.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
+checksum = "40eebddd2156ce1bb37b20bbe5151340a31828b1f2d22ba4141f3531710e38df"
 dependencies = [
  "convert_case",
  "proc-macro2 1.0.41",
  "quote 1.0.18",
- "rustc_version",
+ "rustc_version 0.3.3",
  "syn 1.0.98",
 ]
 
@@ -4241,11 +4241,20 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc_version"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0dfe2087c51c460008730de8b57e6a320782fbfb312e1f4d520e6c6fae155ee"
+dependencies = [
+ "semver 0.11.0",
+]
+
+[[package]]
+name = "rustc_version"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
 dependencies = [
- "semver",
+ "semver 1.0.14",
 ]
 
 [[package]]
@@ -4440,11 +4449,29 @@ dependencies = [
 
 [[package]]
 name = "semver"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f301af10236f6df4160f7c3f04eec6dbc70ace82d23326abad5edee88801c6b6"
+dependencies = [
+ "semver-parser",
+]
+
+[[package]]
+name = "semver"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e25dfac463d778e353db5be2449d1cce89bd6fd23c9f1ea21310ce6e5a1b29c4"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "semver-parser"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00b0bef5b7f9e0df16536d3961cfb6e84331c065b4066afb39768d0e319411f7"
+dependencies = [
+ "pest",
 ]
 
 [[package]]
@@ -4825,7 +4852,7 @@ dependencies = [
  "log",
  "num-derive",
  "num-traits",
- "rustc_version",
+ "rustc_version 0.4.0",
  "serde",
  "solana-frozen-abi 1.15.0",
  "solana-frozen-abi-macro 1.15.0",
@@ -4972,7 +4999,7 @@ dependencies = [
  "log",
  "rand 0.7.3",
  "rayon",
- "rustc_version",
+ "rustc_version 0.4.0",
  "serde",
  "serde_derive",
  "solana-frozen-abi 1.15.0",
@@ -5121,7 +5148,7 @@ dependencies = [
  "num-traits",
  "pretty-hex",
  "reqwest",
- "semver",
+ "semver 1.0.14",
  "serde",
  "serde_derive",
  "serde_json",
@@ -5182,7 +5209,7 @@ dependencies = [
  "humantime",
  "indicatif",
  "pretty-hex",
- "semver",
+ "semver 1.0.14",
  "serde",
  "serde_json",
  "solana-account-decoder",
@@ -5285,7 +5312,7 @@ dependencies = [
  "rand_chacha 0.2.2",
  "raptorq",
  "rayon",
- "rustc_version",
+ "rustc_version 0.4.0",
  "serde",
  "serde_derive",
  "serde_json",
@@ -5428,9 +5455,9 @@ dependencies = [
 
 [[package]]
 name = "solana-frozen-abi"
-version = "1.11.5"
+version = "1.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28e4e35bc58c465f161bde764ebce41fdfcb503583cf3a77e0211274cc12b22d"
+checksum = "3f07a997db3dac7b9da06b007d4a8df6dbd8281182e6ebbbd8a56f935f540b0a"
 dependencies = [
  "ahash",
  "blake3",
@@ -5449,13 +5476,13 @@ dependencies = [
  "memmap2",
  "once_cell",
  "rand_core 0.6.3",
- "rustc_version",
+ "rustc_version 0.4.0",
  "serde",
  "serde_bytes",
  "serde_derive",
  "serde_json",
  "sha2 0.10.5",
- "solana-frozen-abi-macro 1.11.5",
+ "solana-frozen-abi-macro 1.14.5",
  "subtle",
  "thiserror",
 ]
@@ -5481,7 +5508,7 @@ dependencies = [
  "memmap2",
  "once_cell",
  "rand_core 0.6.3",
- "rustc_version",
+ "rustc_version 0.4.0",
  "serde",
  "serde_bytes",
  "serde_derive",
@@ -5495,13 +5522,13 @@ dependencies = [
 
 [[package]]
 name = "solana-frozen-abi-macro"
-version = "1.11.5"
+version = "1.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "708f837d748e574b1e53b250ab1f4a69ba330bbc10d041d02381165f0f36291a"
+checksum = "dcd7d529da0fa5b3b5ca71645122fc94c2aaf867744497969c109e1d4b8ad02d"
 dependencies = [
  "proc-macro2 1.0.41",
  "quote 1.0.18",
- "rustc_version",
+ "rustc_version 0.4.0",
  "syn 1.0.98",
 ]
 
@@ -5511,7 +5538,7 @@ version = "1.15.0"
 dependencies = [
  "proc-macro2 1.0.41",
  "quote 1.0.18",
- "rustc_version",
+ "rustc_version 0.4.0",
  "syn 1.0.98",
 ]
 
@@ -5596,7 +5623,7 @@ dependencies = [
  "rand_chacha 0.2.2",
  "rayon",
  "regex",
- "rustc_version",
+ "rustc_version 0.4.0",
  "serde",
  "serde_bytes",
  "serde_derive",
@@ -5641,7 +5668,7 @@ dependencies = [
  "nix",
  "reqwest",
  "scopeguard",
- "semver",
+ "semver 1.0.14",
  "serde",
  "serde_yaml 0.9.13",
  "solana-clap-utils",
@@ -5702,7 +5729,7 @@ dependencies = [
  "rayon",
  "reed-solomon-erasure",
  "rocksdb",
- "rustc_version",
+ "rustc_version 0.4.0",
  "serde",
  "serde_bytes",
  "sha2 0.10.5",
@@ -5821,9 +5848,9 @@ dependencies = [
 
 [[package]]
 name = "solana-logger"
-version = "1.11.5"
+version = "1.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7ea6fc68d63d33d862d919d4c8ad7f613ec243ccf6762d595c660020b289b57"
+checksum = "c690a6ae623bdd2d71229880a9f668ff714b5c6a9bc180a1abef4887da8b6f27"
 dependencies = [
  "env_logger",
  "lazy_static",
@@ -5997,9 +6024,9 @@ dependencies = [
 
 [[package]]
 name = "solana-program"
-version = "1.11.5"
+version = "1.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdd314d85b171bb20ccdcaf07346a9d52a012b10d84f4706f0628813d002fef8"
+checksum = "f835be7a20e172209538241cdf46451c08b38eaaca65cf16e65658700c447b17"
 dependencies = [
  "base64 0.13.1",
  "bincode",
@@ -6027,7 +6054,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
- "rustc_version",
+ "rustc_version 0.4.0",
  "rustversion",
  "serde",
  "serde_bytes",
@@ -6035,9 +6062,9 @@ dependencies = [
  "serde_json",
  "sha2 0.10.5",
  "sha3 0.10.4",
- "solana-frozen-abi 1.11.5",
- "solana-frozen-abi-macro 1.11.5",
- "solana-sdk-macro 1.11.5",
+ "solana-frozen-abi 1.14.5",
+ "solana-frozen-abi-macro 1.14.5",
+ "solana-sdk-macro 1.14.5",
  "thiserror",
  "tiny-bip39",
  "wasm-bindgen",
@@ -6076,7 +6103,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
- "rustc_version",
+ "rustc_version 0.4.0",
  "rustversion",
  "serde",
  "serde_bytes",
@@ -6110,7 +6137,7 @@ dependencies = [
  "num-derive",
  "num-traits",
  "rand 0.7.3",
- "rustc_version",
+ "rustc_version 0.4.0",
  "serde",
  "solana-frozen-abi 1.15.0",
  "solana-frozen-abi-macro 1.15.0",
@@ -6154,7 +6181,7 @@ dependencies = [
  "futures-util",
  "log",
  "reqwest",
- "semver",
+ "semver 1.0.14",
  "serde",
  "serde_derive",
  "serde_json",
@@ -6200,7 +6227,7 @@ dependencies = [
  "num-traits",
  "parking_lot 0.12.1",
  "qstring",
- "semver",
+ "semver 1.0.14",
  "solana-sdk 1.15.0",
  "thiserror",
  "uriparse",
@@ -6278,7 +6305,7 @@ dependencies = [
  "jsonrpc-http-server",
  "log",
  "reqwest",
- "semver",
+ "semver 1.0.14",
  "serde",
  "serde_derive",
  "serde_json",
@@ -6299,7 +6326,7 @@ dependencies = [
  "bs58",
  "jsonrpc-core",
  "reqwest",
- "semver",
+ "semver 1.0.14",
  "serde",
  "serde_derive",
  "serde_json",
@@ -6390,7 +6417,7 @@ dependencies = [
  "rand_chacha 0.2.2",
  "rayon",
  "regex",
- "rustc_version",
+ "rustc_version 0.4.0",
  "serde",
  "serde_derive",
  "solana-address-lookup-table-program",
@@ -6423,9 +6450,9 @@ dependencies = [
 
 [[package]]
 name = "solana-sdk"
-version = "1.11.5"
+version = "1.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad7d954df63b267857e26670e3aacfd8e2943ca703653b0418e5afc85046c2f3"
+checksum = "f74e8d699c3a441a5b0cd94c718e75b25c1a4295c2180a714b12fb1bcf66a51e"
 dependencies = [
  "assert_matches",
  "base64 0.13.1",
@@ -6454,7 +6481,7 @@ dependencies = [
  "qstring",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
- "rustc_version",
+ "rustc_version 0.4.0",
  "rustversion",
  "serde",
  "serde_bytes",
@@ -6462,11 +6489,11 @@ dependencies = [
  "serde_json",
  "sha2 0.10.5",
  "sha3 0.10.4",
- "solana-frozen-abi 1.11.5",
- "solana-frozen-abi-macro 1.11.5",
- "solana-logger 1.11.5",
- "solana-program 1.11.5",
- "solana-sdk-macro 1.11.5",
+ "solana-frozen-abi 1.14.5",
+ "solana-frozen-abi-macro 1.14.5",
+ "solana-logger 1.14.5",
+ "solana-program 1.14.5",
+ "solana-sdk-macro 1.14.5",
  "thiserror",
  "uriparse",
  "wasm-bindgen",
@@ -6507,7 +6534,7 @@ dependencies = [
  "qstring",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
- "rustc_version",
+ "rustc_version 0.4.0",
  "rustversion",
  "serde",
  "serde_bytes",
@@ -6529,9 +6556,9 @@ dependencies = [
 
 [[package]]
 name = "solana-sdk-macro"
-version = "1.11.5"
+version = "1.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0d9e81bc46edcc517b2df504856d57a5101c7586ec63f3143ae11fbe2eba613"
+checksum = "92ffde9b5b7313629780baca10eaffec7421d53be725c76031ca409a5298705c"
 dependencies = [
  "bs58",
  "proc-macro2 1.0.41",
@@ -6588,7 +6615,7 @@ dependencies = [
  "bincode",
  "log",
  "proptest",
- "rustc_version",
+ "rustc_version 0.4.0",
  "solana-config-program",
  "solana-logger 1.15.0",
  "solana-program-runtime",
@@ -6939,8 +6966,8 @@ name = "solana-version"
 version = "1.15.0"
 dependencies = [
  "log",
- "rustc_version",
- "semver",
+ "rustc_version 0.4.0",
+ "semver 1.0.14",
  "serde",
  "serde_derive",
  "solana-frozen-abi 1.15.0",
@@ -6956,7 +6983,7 @@ dependencies = [
  "log",
  "num-derive",
  "num-traits",
- "rustc_version",
+ "rustc_version 0.4.0",
  "serde",
  "serde_derive",
  "solana-frozen-abi 1.15.0",
@@ -7003,9 +7030,9 @@ dependencies = [
 
 [[package]]
 name = "solana-zk-token-sdk"
-version = "1.11.5"
+version = "1.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62415c05a9ebfffaf8befaa61b24492ebf88269cf84cbeba714bac4125ec4ea3"
+checksum = "0a23a2c443027e8cc2981131a38928cb37e554970c497b5735e888049cc85d3f"
 dependencies = [
  "aes-gcm-siv",
  "arrayref",
@@ -7016,6 +7043,7 @@ dependencies = [
  "cipher 0.4.3",
  "curve25519-dalek",
  "getrandom 0.1.16",
+ "itertools",
  "lazy_static",
  "merlin",
  "num-derive",
@@ -7024,8 +7052,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha3 0.9.1",
- "solana-program 1.11.5",
- "solana-sdk 1.11.5",
+ "solana-program 1.14.5",
+ "solana-sdk 1.14.5",
  "subtle",
  "thiserror",
  "zeroize",
@@ -7110,7 +7138,7 @@ dependencies = [
  "borsh",
  "num-derive",
  "num-traits",
- "solana-program 1.11.5",
+ "solana-program 1.14.5",
  "spl-token",
  "spl-token-2022",
  "thiserror",
@@ -7122,7 +7150,7 @@ version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd0dc6f70db6bacea7ff25870b016a65ba1d1b6013536f08e4fd79a8f9005325"
 dependencies = [
- "solana-program 1.11.5",
+ "solana-program 1.14.5",
 ]
 
 [[package]]
@@ -7136,7 +7164,7 @@ dependencies = [
  "num-derive",
  "num-traits",
  "num_enum",
- "solana-program 1.11.5",
+ "solana-program 1.14.5",
  "thiserror",
 ]
 
@@ -7151,8 +7179,8 @@ dependencies = [
  "num-derive",
  "num-traits",
  "num_enum",
- "solana-program 1.11.5",
- "solana-zk-token-sdk 1.11.5",
+ "solana-program 1.14.5",
+ "solana-zk-token-sdk 1.14.5",
  "spl-memo",
  "spl-token",
  "thiserror",
