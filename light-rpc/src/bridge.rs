@@ -8,6 +8,7 @@ use solana_client::{
     connection_cache::ConnectionCache, thin_client::ThinClient, tpu_connection::TpuConnection,
 };
 
+use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::transaction::Transaction;
 
 use std::time::Duration;
@@ -77,6 +78,14 @@ impl LightBridge {
         Ok(signature)
     }
 
+    pub fn confirm_transaction(
+        &self,
+        signature: String,
+        commitment_cfg: CommitmentConfig,
+    ) -> Result<String, JsonRpcError> {
+        todo!()
+    }
+
     pub fn get_version(&self) -> RpcVersionInfo {
         let version = solana_version::Version::default();
         RpcVersionInfo {
@@ -93,6 +102,9 @@ impl LightBridge {
         match method {
             RpcMethod::SendTransaction(transaction, config) => {
                 Ok(self.send_transaction(transaction, config)?.into())
+            }
+            RpcMethod::ConfirmTransaction(signature, config) => {
+                Ok(self.confirm_transaction(signature, config)?.into())
             }
             RpcMethod::GetVersion => Ok(serde_json::to_value(self.get_version()).unwrap()),
         }

@@ -4,6 +4,7 @@ use actix_web::error::JsonPayloadError;
 use actix_web::{http::StatusCode, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::transport::TransportError;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -11,6 +12,7 @@ use solana_sdk::transport::TransportError;
 #[serde(tag = "method", content = "params")]
 pub enum RpcMethod {
     SendTransaction(String, #[serde(default)] SendTransactionConfig),
+    ConfirmTransaction(String, #[serde(default)] CommitmentConfig),
     GetVersion,
 }
 
