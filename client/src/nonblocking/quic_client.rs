@@ -3,8 +3,9 @@
 //! server's flow control.
 use {
     crate::{
-        client_error::ClientErrorKind, connection_cache::ConnectionCacheStats,
-        nonblocking::tpu_connection::TpuConnection, tpu_connection::ClientStats,
+        bidirectional_channel_handler::BidirectionalChannelHandler, client_error::ClientErrorKind,
+        connection_cache::ConnectionCacheStats, nonblocking::tpu_connection::TpuConnection,
+        tpu_connection::ClientStats,
     },
     async_mutex::Mutex,
     async_trait::async_trait,
@@ -19,8 +20,8 @@ use {
     solana_net_utils::VALIDATOR_PORT_RANGE,
     solana_sdk::{
         quic::{
-            QUIC_CONNECTION_HANDSHAKE_TIMEOUT_MS, QUIC_KEEP_ALIVE_MS, QUIC_MAX_TIMEOUT_MS,
-            QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS,
+            QUIC_CHUNK_SIZE, QUIC_CONNECTION_HANDSHAKE_TIMEOUT_MS, QUIC_KEEP_ALIVE_MS,
+            QUIC_MAX_TIMEOUT_MS,
         },
         signature::Keypair,
         transport::Result as TransportResult,
@@ -187,6 +188,10 @@ impl QuicNewConnection {
         .await
         {
             if connecting_result.is_err() {
+                println!(
+                    "error while connecting is {} ",
+                    connecting_result.as_ref().err().unwrap()
+                );
                 stats.connection_errors.fetch_add(1, Ordering::Relaxed);
             }
             make_connection_measure.stop();
@@ -284,12 +289,44 @@ impl QuicClient {
     async fn _send_buffer_using_conn(
         data: &[u8],
         connection: &NewConnection,
+        server_reply_channel: Option<BidirectionalChannelHandler>,
     ) -> Result<(), QuicError> {
-        let mut send_stream = connection.connection.open_uni().await?;
+        let create_bichannel = match &server_reply_channel {
+            Some(x) => !x.is_serving(),
+            None => false,
+        };
+        if create_bichannel {
+            let (mut send_stream, recv_stream) = connection.connection.open_bi().await?;
 
-        send_stream.write_all(data).await?;
-        send_stream.finish().await?;
+            let server_reply_channel = server_reply_channel;
+            if let Some(server_reply_channel) = server_reply_channel {
+                server_reply_channel.start_serving(recv_stream);
+            }
+            send_stream.write_all(data).await?;
+            send_stream.finish().await?;
+        } else {
+            let mut send_stream = connection.connection.open_uni().await?;
+
+            send_stream.write_all(data).await?;
+            send_stream.finish().await?;
+        }
         Ok(())
+    }
+
+    async fn _send_buffer_using_conn_with_handler(
+        data: &[u8],
+        connection: &NewConnection,
+        server_reply_channel: Option<BidirectionalChannelHandler>,
+        socket: SocketAddr,
+    ) -> Result<(), QuicError> {
+        let res =
+            Self::_send_buffer_using_conn(data, connection, server_reply_channel.clone()).await;
+        if let Err(e) = &res {
+            if let Some(handler) = server_reply_channel {
+                handler.mark_buffer_as_error(data, e.to_string(), socket)
+            }
+        }
+        res
     }
 
     // Attempts to send data, connecting/reconnecting as necessary
@@ -332,6 +369,13 @@ impl QuicClient {
                                         "Cannot make 0rtt connection to {}, error {:}",
                                         self.addr, err
                                     );
+                                    if let Some(handler) = stats.server_reply_channel.clone() {
+                                        handler.mark_buffer_as_error(
+                                            data,
+                                            err.to_string(),
+                                            self.addr.clone(),
+                                        );
+                                    }
                                     return Err(err);
                                 }
                             }
@@ -361,6 +405,13 @@ impl QuicClient {
                             }
                             Err(err) => {
                                 info!("Cannot make connection to {}, error {:}", self.addr, err);
+                                if let Some(handler) = stats.server_reply_channel.clone() {
+                                    handler.mark_buffer_as_error(
+                                        data,
+                                        err.to_string(),
+                                        self.addr.clone(),
+                                    );
+                                }
                                 return Err(err);
                             }
                         }
@@ -397,7 +448,13 @@ impl QuicClient {
                 .update_stat(&self.stats.tx_acks, new_stats.frame_tx.acks);
 
             last_connection_id = connection.connection.stable_id();
-            match Self::_send_buffer_using_conn(data, &connection).await {
+            match Self::_send_buffer_using_conn(
+                data,
+                &connection,
+                stats.server_reply_channel.clone(),
+            )
+            .await
+            {
                 Ok(()) => {
                     return Ok(connection);
                 }
@@ -413,6 +470,9 @@ impl QuicClient {
                             err,
                             thread::current().id(),
                         );
+                        if let Some(handler) = stats.server_reply_channel.clone() {
+                            handler.mark_buffer_as_error(data, err.to_string(), self.addr.clone());
+                        }
                         return Err(err);
                     }
                 },
@@ -479,11 +539,13 @@ impl QuicClient {
         let futures: Vec<_> = chunks
             .into_iter()
             .map(|buffs| {
-                join_all(
-                    buffs
-                        .into_iter()
-                        .map(|buf| Self::_send_buffer_using_conn(buf.as_ref(), connection_ref)),
-                )
+                join_all(buffs.into_iter().map(|buf| {
+                    Self::_send_buffer_using_conn(
+                        buf.as_ref(),
+                        connection_ref,
+                        stats.server_reply_channel.clone(),
+                    )
+                }))
             })
             .collect();
 
@@ -521,11 +583,7 @@ impl QuicTpuConnection {
         addr: SocketAddr,
         connection_stats: Arc<ConnectionCacheStats>,
     ) -> Self {
-        let client = Arc::new(QuicClient::new(
-            endpoint,
-            addr,
-            QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS,
-        ));
+        let client = Arc::new(QuicClient::new(endpoint, addr, QUIC_CHUNK_SIZE));
         Self::new_with_client(client, connection_stats)
     }
 
@@ -550,7 +608,10 @@ impl TpuConnection for QuicTpuConnection {
     where
         T: AsRef<[u8]> + Send + Sync,
     {
-        let stats = ClientStats::default();
+        let stats = ClientStats {
+            server_reply_channel: self.connection_stats.server_reply_channel.clone(),
+            ..Default::default()
+        };
         let len = buffers.len();
         let res = self
             .client
@@ -566,7 +627,10 @@ impl TpuConnection for QuicTpuConnection {
     where
         T: AsRef<[u8]> + Send + Sync,
     {
-        let stats = Arc::new(ClientStats::default());
+        let stats = ClientStats {
+            server_reply_channel: self.connection_stats.server_reply_channel.clone(),
+            ..Default::default()
+        };
         let send_buffer =
             self.client
                 .send_buffer(wire_transaction, &stats, self.connection_stats.clone());

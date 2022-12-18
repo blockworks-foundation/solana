@@ -60,7 +60,7 @@ use {
         transaction::{self, SanitizedTransaction, TransactionError, VersionedTransaction},
         transport::TransportError,
     },
-    solana_streamer::sendmmsg::batch_send,
+    solana_streamer::{bidirectional_channel::QuicBidirectionalReplyService, sendmmsg::batch_send},
     solana_transaction_status::token_balances::TransactionTokenBalancesSet,
     std::{
         cmp,
@@ -410,6 +410,7 @@ impl BankingStage {
         log_messages_bytes_limit: Option<usize>,
         connection_cache: Arc<ConnectionCache>,
         bank_forks: Arc<RwLock<BankForks>>,
+        bidirection_reply_service: QuicBidirectionalReplyService,
     ) -> Self {
         Self::new_num_threads(
             cluster_info,
@@ -424,6 +425,7 @@ impl BankingStage {
             log_messages_bytes_limit,
             connection_cache,
             bank_forks,
+            bidirection_reply_service,
         )
     }
 
@@ -441,6 +443,7 @@ impl BankingStage {
         log_messages_bytes_limit: Option<usize>,
         connection_cache: Arc<ConnectionCache>,
         bank_forks: Arc<RwLock<BankForks>>,
+        bidirection_reply_service: QuicBidirectionalReplyService,
     ) -> Self {
         assert!(num_threads >= MIN_TOTAL_THREADS);
         // Single thread to generate entries from many banks.
@@ -474,6 +477,7 @@ impl BankingStage {
                 let cost_model = cost_model.clone();
                 let connection_cache = connection_cache.clone();
                 let bank_forks = bank_forks.clone();
+                let bidirection_reply_service = bidirection_reply_service.clone();
                 Builder::new()
                     .name(format!("solBanknStgTx{:02}", i))
                     .spawn(move || {
@@ -492,6 +496,7 @@ impl BankingStage {
                             log_messages_bytes_limit,
                             connection_cache,
                             &bank_forks,
+                            bidirection_reply_service.clone(),
                         );
                     })
                     .unwrap()
@@ -1231,13 +1236,14 @@ impl BankingStage {
         log_messages_bytes_limit: Option<usize>,
         connection_cache: Arc<ConnectionCache>,
         bank_forks: &Arc<RwLock<BankForks>>,
+        bidirection_reply_service: QuicBidirectionalReplyService,
     ) {
         let recorder = poh_recorder.read().unwrap().recorder();
         let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
         let mut buffered_packet_batches = UnprocessedPacketBatches::with_capacity(batch_limit);
         let mut banking_stage_stats = BankingStageStats::new(id);
         let mut tracer_packet_stats = TracerPacketStats::new(id);
-        let qos_service = QosService::new(cost_model, id);
+        let qos_service = QosService::new(cost_model, id, bidirection_reply_service);
 
         let mut slot_metrics_tracker = LeaderSlotMetricsTracker::new(id);
         let mut last_metrics_update = Instant::now();
@@ -1375,6 +1381,7 @@ impl BankingStage {
         transaction_status_sender: Option<TransactionStatusSender>,
         gossip_vote_sender: &ReplayVoteSender,
         log_messages_bytes_limit: Option<usize>,
+        bidirection_reply_service: QuicBidirectionalReplyService,
     ) -> ExecuteAndCommitTransactionsOutput {
         let mut execute_and_commit_timings = LeaderExecuteAndCommitTimings::default();
         let mut mint_decimals: HashMap<Pubkey, u8> = HashMap::new();
@@ -1412,7 +1419,8 @@ impl BankingStage {
                 transaction_status_sender.is_some(),
                 &mut execute_and_commit_timings.execute_timings,
                 None, // account_overrides
-                log_messages_bytes_limit
+                log_messages_bytes_limit,
+                bidirection_reply_service,
             ),
             "load_execute",
         );
@@ -1654,6 +1662,7 @@ impl BankingStage {
                 transaction_status_sender,
                 gossip_vote_sender,
                 log_messages_bytes_limit,
+                qos_service.bidirection_reply_service(),
             );
 
         let mut unlock_time = Measure::start("unlock_time");
@@ -1963,6 +1972,7 @@ impl BankingStage {
         bank: &Arc<Bank>,
         transactions: &[SanitizedTransaction],
         pending_indexes: &[usize],
+        bidirectional_reply_service: QuicBidirectionalReplyService,
     ) -> Vec<usize> {
         let filter =
             Self::prepare_filter_for_pending_transactions(transactions.len(), pending_indexes);
@@ -1987,6 +1997,7 @@ impl BankingStage {
                 .saturating_sub(max_tx_fwd_delay)
                 .saturating_sub(FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET as usize),
             &mut error_counters,
+            bidirectional_reply_service,
         );
 
         Self::filter_valid_transaction_indexes(&results)
@@ -2056,12 +2067,14 @@ impl BankingStage {
         let retryable_tx_count = retryable_transaction_indexes.len();
         inc_new_counter_info!("banking_stage-unprocessed_transactions", retryable_tx_count);
 
+        let bidirectional_reply_service = qos_service.bidirection_reply_service();
         // Filter out the retryable transactions that are too old
         let (filtered_retryable_transaction_indexes, filter_retryable_packets_time) = measure!(
             Self::filter_pending_packets_from_pending_txs(
                 bank,
                 sanitized_transactions,
-                retryable_transaction_indexes
+                retryable_transaction_indexes,
+                bidirectional_reply_service,
             ),
             "filter_retryable_packets_time"
         );
@@ -2388,6 +2401,7 @@ mod tests {
                 None,
                 Arc::new(ConnectionCache::default()),
                 bank_forks,
+                QuicBidirectionalReplyService::new_for_test(),
             );
             drop(verified_sender);
             drop(gossip_verified_vote_sender);
@@ -2442,6 +2456,7 @@ mod tests {
                 None,
                 Arc::new(ConnectionCache::default()),
                 bank_forks,
+                QuicBidirectionalReplyService::new_for_test(),
             );
             trace!("sending bank");
             drop(verified_sender);
@@ -2521,6 +2536,7 @@ mod tests {
                 None,
                 Arc::new(ConnectionCache::default()),
                 bank_forks,
+                QuicBidirectionalReplyService::new_for_test(),
             );
 
             // fund another account so we can send 2 good transactions in a single batch.
@@ -2677,6 +2693,7 @@ mod tests {
                     None,
                     Arc::new(ConnectionCache::default()),
                     bank_forks,
+                    QuicBidirectionalReplyService::new_for_test(),
                 );
 
                 // wait for banking_stage to eat the packets
@@ -2977,7 +2994,7 @@ mod tests {
                 0,
                 None,
                 &gossip_vote_sender,
-                &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+                &QosService::new_for_test(),
                 None,
             );
 
@@ -3030,7 +3047,11 @@ mod tests {
                 0,
                 None,
                 &gossip_vote_sender,
-                &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+                &QosService::new(
+                    Arc::new(RwLock::new(CostModel::default())),
+                    1,
+                    QuicBidirectionalReplyService::new_for_test(),
+                ),
                 None,
             );
 
@@ -3114,7 +3135,11 @@ mod tests {
                 0,
                 None,
                 &gossip_vote_sender,
-                &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+                &QosService::new(
+                    Arc::new(RwLock::new(CostModel::default())),
+                    1,
+                    QuicBidirectionalReplyService::new_for_test(),
+                ),
                 None,
             );
 
@@ -3181,7 +3206,11 @@ mod tests {
             poh_recorder.write().unwrap().set_bank(&bank, false);
             let (gossip_vote_sender, _gossip_vote_receiver) = unbounded();
 
-            let qos_service = QosService::new(Arc::new(RwLock::new(CostModel::default())), 1);
+            let qos_service = QosService::new(
+                Arc::new(RwLock::new(CostModel::default())),
+                1,
+                QuicBidirectionalReplyService::new_for_test(),
+            );
 
             let get_block_cost = || bank.read_cost_tracker().unwrap().block_cost();
             let get_tx_count = || bank.read_cost_tracker().unwrap().transaction_count();
@@ -3343,7 +3372,11 @@ mod tests {
                 0,
                 None,
                 &gossip_vote_sender,
-                &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+                &QosService::new(
+                    Arc::new(RwLock::new(CostModel::default())),
+                    1,
+                    QuicBidirectionalReplyService::new_for_test(),
+                ),
                 None,
             );
 
@@ -3509,7 +3542,11 @@ mod tests {
                 &recorder,
                 None,
                 &gossip_vote_sender,
-                &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+                &QosService::new(
+                    Arc::new(RwLock::new(CostModel::default())),
+                    1,
+                    QuicBidirectionalReplyService::new_for_test(),
+                ),
                 None,
             );
 
@@ -3576,7 +3613,11 @@ mod tests {
             &recorder,
             None,
             &gossip_vote_sender,
-            &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+            &QosService::new(
+                Arc::new(RwLock::new(CostModel::default())),
+                1,
+                QuicBidirectionalReplyService::new_for_test(),
+            ),
             None,
         );
 
@@ -3806,7 +3847,11 @@ mod tests {
                     sender: transaction_status_sender,
                 }),
                 &gossip_vote_sender,
-                &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+                &QosService::new(
+                    Arc::new(RwLock::new(CostModel::default())),
+                    1,
+                    QuicBidirectionalReplyService::new_for_test(),
+                ),
                 None,
             );
 
@@ -3975,7 +4020,11 @@ mod tests {
                     sender: transaction_status_sender,
                 }),
                 &gossip_vote_sender,
-                &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+                &QosService::new(
+                    Arc::new(RwLock::new(CostModel::default())),
+                    1,
+                    QuicBidirectionalReplyService::new_for_test(),
+                ),
                 None,
             );
 
@@ -4097,7 +4146,11 @@ mod tests {
                 None::<Box<dyn Fn()>>,
                 &BankingStageStats::default(),
                 &recorder,
-                &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+                &QosService::new(
+                    Arc::new(RwLock::new(CostModel::default())),
+                    1,
+                    QuicBidirectionalReplyService::new_for_test(),
+                ),
                 &mut LeaderSlotMetricsTracker::new(0),
                 None,
             );
@@ -4115,7 +4168,11 @@ mod tests {
                 None::<Box<dyn Fn()>>,
                 &BankingStageStats::default(),
                 &recorder,
-                &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+                &QosService::new(
+                    Arc::new(RwLock::new(CostModel::default())),
+                    1,
+                    QuicBidirectionalReplyService::new_for_test(),
+                ),
                 &mut LeaderSlotMetricsTracker::new(0),
                 None,
             );
@@ -4175,7 +4232,11 @@ mod tests {
                         test_fn,
                         &BankingStageStats::default(),
                         &recorder,
-                        &QosService::new(Arc::new(RwLock::new(CostModel::default())), 1),
+                        &QosService::new(
+                            Arc::new(RwLock::new(CostModel::default())),
+                            1,
+                            QuicBidirectionalReplyService::new_for_test(),
+                        ),
                         &mut LeaderSlotMetricsTracker::new(0),
                         None,
                     );

@@ -1,5 +1,6 @@
 use {
     crate::{
+        bidirectional_channel::QuicBidirectionalReplyService,
         nonblocking::quic::ALPN_TPU_PROTOCOL_ID, streamer::StakedNodes,
         tls_certificates::new_self_signed_tls_certificate_chain,
     },
@@ -88,9 +89,10 @@ pub(crate) fn configure_server(
     let timeout = IdleTimeout::from(VarInt::from_u32(QUIC_MAX_TIMEOUT_MS));
     config.max_idle_timeout(Some(timeout));
 
-    // disable bidi & datagrams
-    const MAX_CONCURRENT_BIDI_STREAMS: u32 = 0;
+    // enable bidi streams so that we can send back error using BidirectionalReplyService
+    const MAX_CONCURRENT_BIDI_STREAMS: u32 = MAX_CONCURRENT_UNI_STREAMS;
     config.max_concurrent_bidi_streams(MAX_CONCURRENT_BIDI_STREAMS.into());
+    // disable datagrams
     config.datagram_receive_buffer_size(None);
 
     Ok((server_config, cert_chain_pem))
@@ -286,6 +288,7 @@ pub fn spawn_server(
     max_staked_connections: usize,
     max_unstaked_connections: usize,
     stats: Arc<StreamStats>,
+    bidirectional_reply_service: QuicBidirectionalReplyService,
 ) -> Result<thread::JoinHandle<()>, QuicServerError> {
     let runtime = rt();
     let task = {
@@ -301,6 +304,7 @@ pub fn spawn_server(
             max_staked_connections,
             max_unstaked_connections,
             stats,
+            bidirectional_reply_service,
         )
     }?;
     let handle = thread::Builder::new()
@@ -335,6 +339,7 @@ mod test {
         let server_address = s.local_addr().unwrap();
         let staked_nodes = Arc::new(RwLock::new(StakedNodes::default()));
         let stats = Arc::new(StreamStats::default());
+
         let t = spawn_server(
             s,
             &keypair,
@@ -346,6 +351,7 @@ mod test {
             MAX_STAKED_CONNECTIONS,
             MAX_UNSTAKED_CONNECTIONS,
             stats,
+            QuicBidirectionalReplyService::new_for_test(),
         )
         .unwrap();
         (t, exit, receiver, server_address)
@@ -390,6 +396,7 @@ mod test {
         let server_address = s.local_addr().unwrap();
         let staked_nodes = Arc::new(RwLock::new(StakedNodes::default()));
         let stats = Arc::new(StreamStats::default());
+
         let t = spawn_server(
             s,
             &keypair,
@@ -401,6 +408,7 @@ mod test {
             MAX_STAKED_CONNECTIONS,
             MAX_UNSTAKED_CONNECTIONS,
             stats,
+            QuicBidirectionalReplyService::new_for_test(),
         )
         .unwrap();
 
@@ -432,6 +440,7 @@ mod test {
         let server_address = s.local_addr().unwrap();
         let staked_nodes = Arc::new(RwLock::new(StakedNodes::default()));
         let stats = Arc::new(StreamStats::default());
+
         let t = spawn_server(
             s,
             &keypair,
@@ -443,6 +452,7 @@ mod test {
             MAX_STAKED_CONNECTIONS,
             0, // Do not allow any connection from unstaked clients/nodes
             stats,
+            QuicBidirectionalReplyService::new_for_test(),
         )
         .unwrap();
 

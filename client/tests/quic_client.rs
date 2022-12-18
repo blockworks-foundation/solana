@@ -8,7 +8,10 @@ mod tests {
         },
         solana_perf::packet::PacketBatch,
         solana_sdk::{packet::PACKET_DATA_SIZE, signature::Keypair},
-        solana_streamer::{quic::StreamStats, streamer::StakedNodes},
+        solana_streamer::{
+            bidirectional_channel::QuicBidirectionalReplyService, quic::StreamStats,
+            streamer::StakedNodes,
+        },
         std::{
             net::{IpAddr, SocketAddr, UdpSocket},
             sync::{
@@ -78,6 +81,7 @@ mod tests {
             10,
             10,
             stats,
+            QuicBidirectionalReplyService::new_for_test(),
         )
         .unwrap();
 
@@ -123,6 +127,7 @@ mod tests {
             10,
             10,
             stats,
+            QuicBidirectionalReplyService::new_for_test(),
         )
         .unwrap();
 

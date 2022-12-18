@@ -1,5 +1,8 @@
 use {
-    crate::{quic_client::QuicTpuConnection, udp_client::UdpTpuConnection},
+    crate::{
+        bidirectional_channel_handler::BidirectionalChannelHandler, quic_client::QuicTpuConnection,
+        udp_client::UdpTpuConnection,
+    },
     enum_dispatch::enum_dispatch,
     rayon::iter::{IntoParallelIterator, ParallelIterator},
     solana_metrics::MovingStat,
@@ -22,6 +25,8 @@ pub struct ClientStats {
     pub tx_acks: MovingStat,
     pub make_connection_ms: AtomicU64,
     pub send_timeout: AtomicU64,
+
+    pub server_reply_channel: Option<BidirectionalChannelHandler>,
 }
 
 #[enum_dispatch]

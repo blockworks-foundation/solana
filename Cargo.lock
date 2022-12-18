@@ -5456,6 +5456,7 @@ dependencies = [
  "solana-stake-program",
  "solana-storage-bigtable",
  "solana-storage-proto",
+ "solana-streamer",
  "solana-transaction-status",
  "solana-vote-program",
  "spl-token",
@@ -6023,6 +6024,7 @@ dependencies = [
  "solana-rayon-threadlimit",
  "solana-sdk 1.14.12",
  "solana-stake-program",
+ "solana-streamer",
  "solana-vote-program",
  "solana-zk-token-proof-program",
  "solana-zk-token-sdk 1.14.12",
@@ -6280,6 +6282,7 @@ dependencies = [
 name = "solana-streamer"
 version = "1.14.12"
 dependencies = [
+ "bincode",
  "crossbeam-channel",
  "futures-util",
  "histogram",
@@ -6295,6 +6298,9 @@ dependencies = [
  "rand 0.7.3",
  "rcgen",
  "rustls 0.20.6",
+ "serde",
+ "serde_derive",
+ "solana-client",
  "solana-logger 1.14.12",
  "solana-metrics",
  "solana-perf",

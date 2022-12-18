@@ -1,5 +1,6 @@
 use {
     crate::{
+        bidirectional_channel_handler::BidirectionalChannelHandler,
         nonblocking::{
             quic_client::{QuicClient, QuicClientCertificate, QuicLazyInitializedEndpoint},
             tpu_connection::NonblockingConnection,
@@ -57,6 +58,9 @@ pub struct ConnectionCacheStats {
     // Need to track these separately per-connection
     // because we need to track the base stat value from quinn
     pub total_client_stats: ClientStats,
+
+    // getting quic errors from leader
+    pub server_reply_channel: Option<BidirectionalChannelHandler>,
 }
 
 const CONNECTION_STAT_SUBMISSION_INTERVAL: u64 = 2000;
@@ -283,6 +287,22 @@ impl ConnectionCache {
         Self {
             use_quic: true,
             connection_pool_size,
+            ..Self::default()
+        }
+    }
+
+    pub fn new_with_replies_from_tpu(
+        connection_pool_size: usize,
+        reply_channel: BidirectionalChannelHandler,
+    ) -> Self {
+        let connection_pool_size = 1.max(connection_pool_size);
+        Self {
+            use_quic: true,
+            connection_pool_size,
+            stats: Arc::new(ConnectionCacheStats {
+                server_reply_channel: Some(reply_channel.clone()),
+                ..Default::default()
+            }),
             ..Self::default()
         }
     }
