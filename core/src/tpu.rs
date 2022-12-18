@@ -29,9 +29,10 @@ use {
         bank_forks::BankForks,
         vote_sender_types::{ReplayVoteReceiver, ReplayVoteSender},
     },
-    solana_sdk::{pubkey::Pubkey, signature::Keypair},
+    solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer},
     solana_streamer::{
         nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+        bidirectional_channel::QuicBidirectionalReplyService,
         quic::{spawn_server, StreamStats, MAX_STAKED_CONNECTIONS, MAX_UNSTAKED_CONNECTIONS},
         streamer::StakedNodes,
     },
@@ -141,6 +142,9 @@ impl Tpu {
 
         let (find_packet_sender_stake_sender, find_packet_sender_stake_receiver) = unbounded();
 
+        // this channel is used to send back error to clients who have connected in mode bidirectional
+        let bidirection_reply_service = QuicBidirectionalReplyService::new(keypair.pubkey());
+
         let find_packet_sender_stake_stage = FindPacketSenderStakeStage::new(
             packet_receiver,
             find_packet_sender_stake_sender,
@@ -173,6 +177,7 @@ impl Tpu {
             MAX_UNSTAKED_CONNECTIONS,
             stats.clone(),
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            bidirection_reply_service.clone(),
         )
         .unwrap();
 
@@ -188,12 +193,18 @@ impl Tpu {
             0, // Prevent unstaked nodes from forwarding transactions
             stats,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            bidirection_reply_service.clone(),
         )
         .unwrap();
 
         let sigverify_stage = {
             let verifier = TransactionSigVerifier::new(non_vote_sender);
-            SigVerifyStage::new(find_packet_sender_stake_receiver, verifier, "tpu-verifier")
+            SigVerifyStage::new(
+                find_packet_sender_stake_receiver,
+                verifier,
+                "tpu-verifier",
+                bidirection_reply_service.clone(),
+            )
         };
 
         let (tpu_vote_sender, tpu_vote_receiver) = banking_tracer.create_channel_tpu_vote();
@@ -204,6 +215,7 @@ impl Tpu {
                 vote_find_packet_sender_stake_receiver,
                 verifier,
                 "tpu-vote-verifier",
+                bidirection_reply_service.clone(),
             )
         };
 
@@ -236,6 +248,7 @@ impl Tpu {
             log_messages_bytes_limit,
             connection_cache.clone(),
             bank_forks.clone(),
+            bidirection_reply_service.clone(),
         );
 
         let broadcast_stage = broadcast_type.new_broadcast_stage(

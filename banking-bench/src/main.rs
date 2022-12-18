@@ -1,4 +1,5 @@
 #![allow(clippy::integer_arithmetic)]
+
 use {
     clap::{crate_description, crate_name, Arg, ArgEnum, Command},
     crossbeam_channel::{unbounded, Receiver},
@@ -31,8 +32,11 @@ use {
         timing::{duration_as_us, timestamp},
         transaction::Transaction,
     },
-    solana_streamer::socket::SocketAddrSpace,
     solana_tpu_client::tpu_connection_cache::DEFAULT_TPU_CONNECTION_POOL_SIZE,
+    solana_streamer::{
+        socket::SocketAddrSpace,
+        bidirectional_channel::QuicBidirectionalReplyService,
+    },
     std::{
         sync::{atomic::Ordering, Arc, RwLock},
         thread::sleep,
@@ -450,6 +454,7 @@ fn main() {
             None,
             Arc::new(connection_cache),
             bank_forks.clone(),
+            QuicBidirectionalReplyService::new_for_test(),
         );
         poh_recorder.write().unwrap().set_bank(&bank, false);
 

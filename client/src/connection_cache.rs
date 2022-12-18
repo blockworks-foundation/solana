@@ -3,7 +3,11 @@ pub use solana_tpu_client::tpu_connection_cache::{
 };
 use {
     crate::{
-        nonblocking::tpu_connection::NonblockingConnection, tpu_connection::BlockingConnection,
+        bidirectional_channel_handler::BidirectionalChannelHandler,
+        nonblocking::{
+            tpu_connection::{ NonblockingConnection },
+        },
+        tpu_connection::{BlockingConnection, ClientStats},
     },
     indexmap::map::{Entry, IndexMap},
     quinn::Endpoint,
@@ -45,6 +49,8 @@ pub struct ConnectionCache {
     // The optional specified endpoint for the quic based client connections
     // If not specified, the connection cache we create as needed.
     client_endpoint: Option<Endpoint>,
+    // getting quic errors from leader
+    server_reply_channel: Option<BidirectionalChannelHandler>,
 }
 
 /// Models the pool of connections
@@ -89,6 +95,22 @@ impl ConnectionCache {
             use_quic: true,
             connection_pool_size,
             client_endpoint,
+            ..Self::default()
+        }
+    }
+
+    pub fn new_with_replies_from_tpu(
+        connection_pool_size: usize,
+        reply_channel: BidirectionalChannelHandler,
+    ) -> Self {
+        let connection_pool_size = 1.max(connection_pool_size);
+        Self {
+            use_quic: true,
+            connection_pool_size,
+            stats: Arc::new(ConnectionCacheStats {
+                ..Default::default()
+            }),
+            server_reply_channel: Some(reply_channel),
             ..Self::default()
         }
     }
@@ -391,6 +413,7 @@ impl Default for ConnectionCache {
             maybe_staked_nodes: None,
             maybe_client_pubkey: None,
             client_endpoint: None,
+            server_reply_channel: None,
         }
     }
 }
@@ -667,6 +690,7 @@ mod tests {
             10,
             response_recv_stats,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            Bidirectioanl
         )
         .unwrap();
 

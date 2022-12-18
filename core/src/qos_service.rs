@@ -18,6 +18,7 @@ use {
         saturating_add_assign,
         transaction::{self, SanitizedTransaction, TransactionError},
     },
+    solana_streamer::bidirectional_channel::QuicBidirectionalReplyService,
     std::{
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
@@ -47,6 +48,7 @@ pub struct QosService {
     // metrics reporting runs on a private thread
     reporting_thread: Option<JoinHandle<()>>,
     running_flag: Arc<AtomicBool>,
+    bidirection_reply_service: QuicBidirectionalReplyService,
 }
 
 impl Drop for QosService {
@@ -61,7 +63,10 @@ impl Drop for QosService {
 }
 
 impl QosService {
-    pub fn new(id: u32) -> Self {
+    pub fn new(
+        id: u32,
+        bidirection_reply_service: QuicBidirectionalReplyService,
+    ) -> Self {
         let (report_sender, report_receiver) = unbounded();
         let running_flag = Arc::new(AtomicBool::new(true));
         let metrics = Arc::new(QosServiceMetrics::new(id));
@@ -82,6 +87,7 @@ impl QosService {
             reporting_thread,
             running_flag,
             report_sender,
+            bidirection_reply_service,
         }
     }
 
@@ -168,18 +174,23 @@ impl QosService {
                     debug!("slot {:?}, transaction {:?}, cost {:?}, not fit into current block, '{:?}'", bank.slot(), tx, cost, e);
                     match e {
                         CostTrackerError::WouldExceedBlockMaxLimit => {
+                            self.bidirection_reply_service.send_message(tx.signature(), TransactionError::WouldExceedMaxBlockCostLimit.to_string());
                             Err(TransactionError::WouldExceedMaxBlockCostLimit)
                         }
                         CostTrackerError::WouldExceedVoteMaxLimit => {
+                            self.bidirection_reply_service.send_message(tx.signature(), TransactionError::WouldExceedMaxVoteCostLimit.to_string());
                             Err(TransactionError::WouldExceedMaxVoteCostLimit)
                         }
                         CostTrackerError::WouldExceedAccountMaxLimit => {
+                            self.bidirection_reply_service.send_message(tx.signature(), TransactionError::WouldExceedMaxAccountCostLimit.to_string());
                             Err(TransactionError::WouldExceedMaxAccountCostLimit)
                         }
                         CostTrackerError::WouldExceedAccountDataBlockLimit => {
+                            self.bidirection_reply_service.send_message(tx.signature(), TransactionError::WouldExceedAccountDataBlockLimit.to_string());
                             Err(TransactionError::WouldExceedAccountDataBlockLimit)
                         }
                         CostTrackerError::WouldExceedAccountDataTotalLimit => {
+                            self.bidirection_reply_service.send_message(tx.signature(), TransactionError::WouldExceedAccountDataTotalLimit.to_string());
                             Err(TransactionError::WouldExceedAccountDataTotalLimit)
                         }
                     }
@@ -452,6 +463,17 @@ impl QosService {
             thread::sleep(Duration::from_millis(100));
         }
     }
+
+    pub fn bidirection_reply_service(&self) -> QuicBidirectionalReplyService {
+        self.bidirection_reply_service.clone()
+    }
+
+    pub fn new_for_test() -> Self {
+        Self::new(
+            1,
+            QuicBidirectionalReplyService::new_for_test(),
+        )
+    }
 }
 
 #[derive(Debug, Default)]
@@ -687,7 +709,7 @@ mod tests {
         );
         let txs = vec![transfer_tx.clone(), vote_tx.clone(), vote_tx, transfer_tx];
 
-        let qos_service = QosService::new(1);
+        let qos_service = QosService::new(1, QuicBidirectionalReplyService::new_for_test(),);
         let txs_costs =
             qos_service.compute_transaction_costs(&FeatureSet::all_enabled(), txs.iter());
 
@@ -733,7 +755,7 @@ mod tests {
         // make a vec of txs
         let txs = vec![transfer_tx.clone(), vote_tx.clone(), transfer_tx, vote_tx];
 
-        let qos_service = QosService::new(1);
+        let qos_service = QosService::new(1, QuicBidirectionalReplyService::new_for_test(),);
         let txs_costs =
             qos_service.compute_transaction_costs(&FeatureSet::all_enabled(), txs.iter());
 
@@ -774,7 +796,7 @@ mod tests {
 
         // assert all tx_costs should be applied to cost_tracker if all execution_results are all committed
         {
-            let qos_service = QosService::new(1);
+            let qos_service = QosService::new(1, QuicBidirectionalReplyService::new_for_test(),);
             let txs_costs =
                 qos_service.compute_transaction_costs(&FeatureSet::all_enabled(), txs.iter());
             let total_txs_cost: u64 = txs_costs.iter().map(|cost| cost.sum()).sum();
@@ -828,7 +850,7 @@ mod tests {
 
         // assert all tx_costs should be removed from cost_tracker if all execution_results are all Not Committed
         {
-            let qos_service = QosService::new(1);
+            let qos_service = QosService::new(1, QuicBidirectionalReplyService::new_for_test(),);
             let txs_costs =
                 qos_service.compute_transaction_costs(&FeatureSet::all_enabled(), txs.iter());
             let total_txs_cost: u64 = txs_costs.iter().map(|cost| cost.sum()).sum();
@@ -869,7 +891,7 @@ mod tests {
 
         // assert only commited tx_costs are applied cost_tracker
         {
-            let qos_service = QosService::new(1);
+            let qos_service = QosService::new(1, QuicBidirectionalReplyService::new_for_test(),);
             let txs_costs =
                 qos_service.compute_transaction_costs(&FeatureSet::all_enabled(), txs.iter());
             let total_txs_cost: u64 = txs_costs.iter().map(|cost| cost.sum()).sum();

@@ -19,7 +19,10 @@ use {
         },
     },
     solana_sdk::timing,
-    solana_streamer::streamer::{self, StreamerError},
+    solana_streamer::{
+        bidirectional_channel::{get_signature_from_packet, QuicBidirectionalReplyService},
+        streamer::{self, StreamerError},
+    },
     std::{
         thread::{self, Builder, JoinHandle},
         time::Instant,
@@ -238,8 +241,10 @@ impl SigVerifyStage {
         packet_receiver: FindPacketSenderStakeReceiver,
         verifier: T,
         name: &'static str,
+        bidirectional_reply_service: QuicBidirectionalReplyService,
     ) -> Self {
-        let thread_hdl = Self::verifier_services(packet_receiver, verifier, name);
+        let thread_hdl =
+            Self::verifier_services(packet_receiver, verifier, name, bidirectional_reply_service);
         Self { thread_hdl }
     }
 
@@ -247,6 +252,7 @@ impl SigVerifyStage {
         batches: &mut [PacketBatch],
         mut max_packets: usize,
         mut process_excess_packet: impl FnMut(&Packet),
+        bidirectional_reply_service: QuicBidirectionalReplyService,
     ) {
         // Group packets by their incoming IP address.
         let mut addrs = batches
@@ -270,6 +276,11 @@ impl SigVerifyStage {
         for packet in addrs.into_values().flatten() {
             process_excess_packet(packet);
             packet.meta_mut().set_discard(true);
+            let sig = get_signature_from_packet(packet);
+            if let Some(sig) = sig {
+                bidirectional_reply_service
+                    .send_message(&sig, "discarded as excess packet".to_string());
+            }
         }
     }
 
@@ -294,6 +305,7 @@ impl SigVerifyStage {
         recvr: &FindPacketSenderStakeReceiver,
         verifier: &mut T,
         stats: &mut SigVerifierStats,
+        bidirectional_reply_service: QuicBidirectionalReplyService,
     ) -> Result<(), T::SendType> {
         let (mut batches, num_packets, recv_duration) = streamer::recv_vec_packet_batches(recvr)?;
 
@@ -318,6 +330,12 @@ impl SigVerifyStage {
             &mut batches,
             #[inline(always)]
             |received_packet, removed_before_sigverify_stage, is_dup| {
+                if is_dup {
+                    let sig = get_signature_from_packet(received_packet);
+                    if sig.is_some() {
+                        bidirectional_reply_service.send_message(&sig.unwrap(), "dup".to_string());
+                    }
+                }
                 verifier.process_received_packet(
                     received_packet,
                     removed_before_sigverify_stage,
@@ -336,6 +354,7 @@ impl SigVerifyStage {
                 MAX_SIGVERIFY_BATCH,
                 #[inline(always)]
                 |excess_packet| verifier.process_excess_packet(excess_packet),
+                bidirectional_reply_service.clone(),
             );
             num_packets_to_verify = MAX_SIGVERIFY_BATCH;
         }
@@ -406,6 +425,7 @@ impl SigVerifyStage {
         packet_receiver: FindPacketSenderStakeReceiver,
         mut verifier: T,
         name: &'static str,
+        bidirectional_reply_service: QuicBidirectionalReplyService,
     ) -> JoinHandle<()> {
         let mut stats = SigVerifierStats::default();
         let mut last_print = Instant::now();
@@ -417,9 +437,13 @@ impl SigVerifyStage {
                 let mut deduper = Deduper::new(MAX_DEDUPER_ITEMS, MAX_DEDUPER_AGE);
                 loop {
                     deduper.reset();
-                    if let Err(e) =
-                        Self::verifier(&deduper, &packet_receiver, &mut verifier, &mut stats)
-                    {
+                    if let Err(e) = Self::verifier(
+                        &deduper,
+                        &packet_receiver,
+                        &mut verifier,
+                        &mut stats,
+                        bidirectional_reply_service.clone(),
+                    ) {
                         match e {
                             SigVerifyServiceError::Streamer(StreamerError::RecvTimeout(
                                 RecvTimeoutError::Disconnected,
@@ -447,8 +471,9 @@ impl SigVerifyStage {
         packet_receiver: FindPacketSenderStakeReceiver,
         verifier: T,
         name: &'static str,
+        bidirectional_reply_service: QuicBidirectionalReplyService,
     ) -> JoinHandle<()> {
-        Self::verifier_service(packet_receiver, verifier, name)
+        Self::verifier_service(packet_receiver, verifier, name, bidirectional_reply_service)
     }
 
     pub fn join(self) -> thread::Result<()> {
@@ -500,7 +525,8 @@ mod tests {
             if packet.meta().is_tracer_packet() {
                 total_tracer_packets_discarded += 1;
             }
-        });
+        },
+        QuicBidirectionalReplyService::new_for_test(),);
         let total_non_discard = count_non_discard(&batches);
         let total_discarded = total_num_packets - total_non_discard;
         // Every packet except the packets already marked `discard` before the call
@@ -546,7 +572,12 @@ mod tests {
         let (packet_s, packet_r) = unbounded();
         let (verified_s, verified_r) = BankingTracer::channel_for_test();
         let verifier = TransactionSigVerifier::new(verified_s);
-        let stage = SigVerifyStage::new(packet_r, verifier, "test");
+        let stage = SigVerifyStage::new(
+            packet_r,
+            verifier,
+            "test",
+            QuicBidirectionalReplyService::new_for_test(),
+        );
 
         let now = Instant::now();
         let packets_per_batch = 128;

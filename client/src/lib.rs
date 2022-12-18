@@ -8,6 +8,7 @@ pub mod tpu_client;
 pub mod tpu_connection;
 pub mod transaction_executor;
 pub mod udp_client;
+pub mod bidirectional_channel_handler;
 
 #[macro_use]
 extern crate solana_metrics;

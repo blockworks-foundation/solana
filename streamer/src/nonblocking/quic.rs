@@ -1,5 +1,6 @@
 use {
     crate::{
+        bidirectional_channel::QuicBidirectionalReplyService,
         quic::{configure_server, QuicServerError, StreamStats},
         streamer::StakedNodes,
         tls_certificates::get_pubkey_from_tls_certificate,
@@ -7,7 +8,7 @@ use {
     crossbeam_channel::Sender,
     indexmap::map::{Entry, IndexMap},
     percentage::Percentage,
-    quinn::{Connecting, Connection, Endpoint, EndpointConfig, TokioRuntime, VarInt},
+    quinn::{Connecting, Connection, Endpoint, EndpointConfig, TokioRuntime, VarInt,},
     quinn_proto::VarIntBoundsExceeded,
     rand::{thread_rng, Rng},
     solana_perf::packet::PacketBatch,
@@ -34,6 +35,7 @@ use {
     tokio::{
         task::JoinHandle,
         time::{sleep, timeout},
+        select,
     },
 };
 
@@ -67,6 +69,7 @@ pub fn spawn_server(
     max_unstaked_connections: usize,
     stats: Arc<StreamStats>,
     wait_for_chunk_timeout_ms: u64,
+    bidirectional_reply_service: QuicBidirectionalReplyService,
 ) -> Result<(Endpoint, JoinHandle<()>), QuicServerError> {
     info!("Start quic server on {:?}", sock);
     let (config, _cert) = configure_server(keypair, gossip_host)?;
@@ -86,6 +89,7 @@ pub fn spawn_server(
         max_unstaked_connections,
         stats,
         wait_for_chunk_timeout_ms,
+        bidirectional_reply_service,
     ));
     Ok((endpoint, handle))
 }
@@ -100,6 +104,7 @@ pub async fn run_server(
     max_unstaked_connections: usize,
     stats: Arc<StreamStats>,
     wait_for_chunk_timeout_ms: u64,
+    bidirectional_reply_service: QuicBidirectionalReplyService,
 ) {
     debug!("spawn quic server");
     let mut last_datapoint = Instant::now();
@@ -108,6 +113,7 @@ pub async fn run_server(
     ));
     let staked_connection_table: Arc<Mutex<ConnectionTable>> =
         Arc::new(Mutex::new(ConnectionTable::new(ConnectionPeerType::Staked)));
+
     while !exit.load(Ordering::Relaxed) {
         const WAIT_FOR_CONNECTION_TIMEOUT_MS: u64 = 1000;
         const WAIT_BETWEEN_NEW_CONNECTIONS_US: u64 = 1000;
@@ -135,6 +141,7 @@ pub async fn run_server(
                 max_unstaked_connections,
                 stats.clone(),
                 wait_for_chunk_timeout_ms,
+                bidirectional_reply_service.clone(),
             ));
             sleep(Duration::from_micros(WAIT_BETWEEN_NEW_CONNECTIONS_US)).await;
         } else {
@@ -264,6 +271,7 @@ fn handle_and_cache_new_connection(
     connection_table: Arc<Mutex<ConnectionTable>>,
     params: &NewConnectionHandlerParams,
     wait_for_chunk_timeout_ms: u64,
+    bidirectional_service: QuicBidirectionalReplyService,
 ) -> Result<(), ConnectionHandlerError> {
     if let Ok(max_uni_streams) = VarInt::from_u64(compute_max_allowed_uni_streams(
         connection_table_l.peer_type,
@@ -317,6 +325,7 @@ fn handle_and_cache_new_connection(
                 params.stake,
                 peer_type,
                 wait_for_chunk_timeout_ms,
+                bidirectional_service,
             ));
             Ok(())
         } else {
@@ -346,6 +355,7 @@ fn prune_unstaked_connections_and_add_new_connection(
     max_connections: usize,
     params: &NewConnectionHandlerParams,
     wait_for_chunk_timeout_ms: u64,
+    bidirectional_service: QuicBidirectionalReplyService,
 ) -> Result<(), ConnectionHandlerError> {
     let stats = params.stats.clone();
     if max_connections > 0 {
@@ -356,6 +366,7 @@ fn prune_unstaked_connections_and_add_new_connection(
             connection_table,
             params,
             wait_for_chunk_timeout_ms,
+            bidirectional_service,
         )
     } else {
         connection.close(
@@ -422,6 +433,7 @@ async fn setup_connection(
     max_unstaked_connections: usize,
     stats: Arc<StreamStats>,
     wait_for_chunk_timeout_ms: u64,
+    bidirectional_service: QuicBidirectionalReplyService,
 ) {
     if let Ok(connecting_result) = timeout(
         Duration::from_millis(QUIC_CONNECTION_HANDSHAKE_TIMEOUT_MS),
@@ -464,6 +476,7 @@ async fn setup_connection(
                         staked_connection_table.clone(),
                         &params,
                         wait_for_chunk_timeout_ms,
+                        bidirectional_service,
                     ) {
                         stats
                             .connection_added_from_staked_peer
@@ -480,6 +493,7 @@ async fn setup_connection(
                         max_unstaked_connections,
                         &params,
                         wait_for_chunk_timeout_ms,
+                        bidirectional_service.clone(),
                     ) {
                         stats
                             .connection_added_from_staked_peer
@@ -500,6 +514,7 @@ async fn setup_connection(
                 max_unstaked_connections,
                 &params,
                 wait_for_chunk_timeout_ms,
+                bidirectional_service.clone(),
             ) {
                 stats
                     .connection_added_from_unstaked_peer
@@ -532,6 +547,7 @@ async fn handle_connection(
     stake: u64,
     peer_type: ConnectionPeerType,
     wait_for_chunk_timeout_ms: u64,
+    bidirectional_service: QuicBidirectionalReplyService,
 ) {
     debug!(
         "quic new connection {} streams: {} connections: {}",
@@ -541,11 +557,22 @@ async fn handle_connection(
     );
     stats.total_connections.fetch_add(1, Ordering::Relaxed);
     while !stream_exit.load(Ordering::Relaxed) {
-        if let Ok(stream) = tokio::time::timeout(
-            Duration::from_millis(WAIT_FOR_STREAM_TIMEOUT_MS),
-            connection.accept_uni(),
-        )
-        .await
+        let recv_stream = select! {
+            stream = tokio::time::timeout(
+                Duration::from_millis(WAIT_FOR_STREAM_TIMEOUT_MS),
+                connection.accept_uni(),
+            ) => {
+                stream
+            },
+        };
+
+        // if let Some(send_stream) = send_stream {
+        //     bidirectional_service
+        //         .add_stream(remote_addr.clone(), send_stream)
+        //         .await;
+        // }
+
+        if let Ok(stream) = recv_stream
         {
             match stream {
                 Ok(mut stream) => {
@@ -555,6 +582,7 @@ async fn handle_connection(
                     let stats = stats.clone();
                     let packet_sender = packet_sender.clone();
                     let last_update = last_update.clone();
+                    let bidirectional_service = bidirectional_service.clone();
                     tokio::spawn(async move {
                         let mut maybe_batch = None;
                         // The min is to guard against a value too small which can wake up unnecessarily
@@ -579,6 +607,7 @@ async fn handle_connection(
                                     stats.clone(),
                                     stake,
                                     peer_type,
+                                    bidirectional_service.clone(),
                                 ) {
                                     last_update.store(timing::timestamp(), Ordering::Relaxed);
                                     break;
@@ -628,6 +657,7 @@ fn handle_chunk(
     stats: Arc<StreamStats>,
     stake: u64,
     peer_type: ConnectionPeerType,
+    bidirectional_service: QuicBidirectionalReplyService,
 ) -> bool {
     match chunk {
         Ok(maybe_chunk) => {
@@ -692,6 +722,18 @@ fn handle_chunk(
                 // done receiving chunks
                 if let Some(batch) = maybe_batch.take() {
                     let len = batch[0].meta().size;
+
+                    // add packages to the bidirectional service
+                    {
+                        let remote_addr = remote_addr.clone();
+                        let batch = batch.clone();
+                        tokio::spawn(async move {
+                            bidirectional_service
+                                .add_packets(&remote_addr, &batch)
+                                .await
+                        });
+                    }
+
                     if let Err(e) = packet_sender.send(batch) {
                         stats
                             .total_packet_batch_send_err
@@ -1020,6 +1062,7 @@ pub mod test {
             MAX_UNSTAKED_CONNECTIONS,
             stats.clone(),
             2000,
+            QuicBidirectionalReplyService::new_for_test(),
         )
         .unwrap();
         (t, exit, receiver, server_address, stats)
@@ -1332,6 +1375,7 @@ pub mod test {
             0, // Do not allow any connection from unstaked clients/nodes
             stats,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            QuicBidirectionalReplyService::new_for_test(),
         )
         .unwrap();
 
@@ -1363,6 +1407,7 @@ pub mod test {
             MAX_UNSTAKED_CONNECTIONS,
             stats.clone(),
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            QuicBidirectionalReplyService::new_for_test(),
         )
         .unwrap();
 

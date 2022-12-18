@@ -1,3 +1,5 @@
+use solana_streamer::bidirectional_channel::QuicBidirectionalReplyService;
+
 use {
     crate::{
         banking_stage::{BankingStageStats, FilterForwardingResults, ForwardOption},
@@ -750,6 +752,7 @@ impl ThreadLocalUnprocessedPackets {
             transactions,
             &filter,
             FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET,
+            QuicBidirectionalReplyService::new_for_test(), // is called while forwarding / no need for bidirectional replies
         );
         // report metrics
         let filtered_out_transactions_count = transactions.len().saturating_sub(results.len());

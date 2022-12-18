@@ -323,6 +323,7 @@ pub struct BankRc {
 
 #[cfg(RUSTC_WITH_SPECIALIZATION)]
 use solana_frozen_abi::abi_example::AbiExample;
+use solana_streamer::bidirectional_channel::QuicBidirectionalReplyService;
 
 #[cfg(RUSTC_WITH_SPECIALIZATION)]
 impl AbiExample for BankRc {
@@ -3751,6 +3752,7 @@ impl Bank {
             &mut timings,
             Some(&account_overrides),
             None,
+            QuicBidirectionalReplyService::new_for_test(),
         );
 
         let post_simulation_accounts = loaded_transactions
@@ -3841,6 +3843,7 @@ impl Bank {
         lock_results: &[Result<()>],
         max_age: usize,
         error_counters: &mut TransactionErrorMetrics,
+        bidirectional_channel: QuicBidirectionalReplyService,
     ) -> Vec<TransactionCheckResult> {
         let hash_queue = self.blockhash_queue.read().unwrap();
         let last_blockhash = hash_queue.last_hash();
@@ -3857,6 +3860,10 @@ impl Bank {
                     {
                         (Ok(()), Some(NoncePartial::new(address, account)))
                     } else {
+                        bidirectional_channel.send_message(
+                            tx.signature(),
+                            TransactionError::BlockhashNotFound.to_string(),
+                        );
                         error_counters.blockhash_not_found += 1;
                         (Err(TransactionError::BlockhashNotFound), None)
                     }
@@ -3947,9 +3954,15 @@ impl Bank {
         lock_results: &[Result<()>],
         max_age: usize,
         error_counters: &mut TransactionErrorMetrics,
+        bidirection_reply_service: QuicBidirectionalReplyService,
     ) -> Vec<TransactionCheckResult> {
-        let age_results =
-            self.check_age(sanitized_txs.iter(), lock_results, max_age, error_counters);
+        let age_results = self.check_age(
+            sanitized_txs.iter(),
+            lock_results,
+            max_age,
+            error_counters,
+            bidirection_reply_service,
+        );
         self.check_status_cache(sanitized_txs, age_results, error_counters)
     }
 
@@ -4299,6 +4312,7 @@ impl Bank {
         timings: &mut ExecuteTimings,
         account_overrides: Option<&AccountOverrides>,
         log_messages_bytes_limit: Option<usize>,
+        bidirection_reply_service: QuicBidirectionalReplyService,
     ) -> LoadAndExecuteTransactionsOutput {
         let sanitized_txs = batch.sanitized_transactions();
         debug!("processing transactions: {}", sanitized_txs.len());
@@ -4312,6 +4326,10 @@ impl Bank {
             .filter_map(|(index, res)| match res {
                 // following are retryable errors
                 Err(TransactionError::AccountInUse) => {
+                    bidirection_reply_service.send_message(
+                        sanitized_txs[index].signature(),
+                        TransactionError::AccountInUse.to_string(),
+                    );
                     error_counters.account_in_use += 1;
                     Some(index)
                 }
@@ -4333,6 +4351,10 @@ impl Bank {
                 }
                 // following are non-retryable errors
                 Err(TransactionError::TooManyAccountLocks) => {
+                    bidirection_reply_service.send_message(
+                        sanitized_txs[index].signature(),
+                        TransactionError::TooManyAccountLocks.to_string(),
+                    );
                     error_counters.too_many_account_locks += 1;
                     None
                 }
@@ -4347,6 +4369,7 @@ impl Bank {
             batch.lock_results(),
             max_age,
             &mut error_counters,
+            bidirection_reply_service,
         );
         check_time.stop();
 
@@ -5955,6 +5978,7 @@ impl Bank {
         enable_return_data_recording: bool,
         timings: &mut ExecuteTimings,
         log_messages_bytes_limit: Option<usize>,
+        bidirection_reply_service: QuicBidirectionalReplyService,
     ) -> (TransactionResults, TransactionBalancesSet) {
         let pre_balances = if collect_balances {
             self.collect_balances(batch)
@@ -5979,6 +6003,7 @@ impl Bank {
             timings,
             None,
             log_messages_bytes_limit,
+            bidirection_reply_service,
         );
 
         let (last_blockhash, lamports_per_signature) =
@@ -6047,6 +6072,7 @@ impl Bank {
             true,  // enable_return_data_recording
             &mut ExecuteTimings::default(),
             Some(1000 * 1000),
+            QuicBidirectionalReplyService::new_for_test(),
         );
 
         execution_results.remove(0)
@@ -6108,6 +6134,7 @@ impl Bank {
             false,
             &mut ExecuteTimings::default(),
             None,
+            QuicBidirectionalReplyService::new_for_test(),
         )
         .0
         .fee_collection_results
@@ -7703,6 +7730,7 @@ impl Bank {
         transactions: &[SanitizedTransaction],
         filter: &[transaction::Result<()>],
         forward_transactions_to_leader_at_slot_offset: u64,
+        bidirection_reply_service: QuicBidirectionalReplyService,
     ) -> Vec<TransactionCheckResult> {
         let mut error_counters = TransactionErrorMetrics::default();
         // The following code also checks if the blockhash for a transaction is too old
@@ -7724,6 +7752,7 @@ impl Bank {
                 .saturating_sub(max_tx_fwd_delay)
                 .saturating_sub(forward_transactions_to_leader_at_slot_offset as usize),
             &mut error_counters,
+            bidirection_reply_service,
         )
     }
 }
@@ -11324,6 +11353,7 @@ pub(crate) mod tests {
                 false,
                 &mut ExecuteTimings::default(),
                 None,
+                QuicBidirectionalReplyService::new_for_test(),
             )
             .0
             .fee_collection_results;
@@ -14077,6 +14107,7 @@ pub(crate) mod tests {
                 false,
                 &mut ExecuteTimings::default(),
                 None,
+                QuicBidirectionalReplyService::new_for_test(),
             );
 
         assert_eq!(transaction_balances_set.pre_balances.len(), 3);
@@ -17587,6 +17618,7 @@ pub(crate) mod tests {
                 false,
                 &mut ExecuteTimings::default(),
                 None,
+                QuicBidirectionalReplyService::new_for_test(),
             )
             .0
             .execution_results;
@@ -17696,6 +17728,7 @@ pub(crate) mod tests {
                     true,
                     &mut ExecuteTimings::default(),
                     None,
+                    QuicBidirectionalReplyService::new_for_test(),
                 )
                 .0
                 .execution_results[0]

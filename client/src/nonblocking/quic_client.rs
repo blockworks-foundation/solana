@@ -23,7 +23,9 @@ impl TpuConnection for QuicTpuConnection {
     where
         T: AsRef<[u8]> + Send + Sync,
     {
-        let stats = ClientStats::default();
+        let stats = ClientStats {
+            ..Default::default()
+        };
         let len = buffers.len();
         let res = self
             .client
@@ -39,7 +41,9 @@ impl TpuConnection for QuicTpuConnection {
     where
         T: AsRef<[u8]> + Send + Sync,
     {
-        let stats = Arc::new(ClientStats::default());
+        let stats = ClientStats {
+            ..Default::default()
+        };
         let send_buffer =
             self.client
                 .send_buffer(wire_transaction, &stats, self.connection_stats.clone());

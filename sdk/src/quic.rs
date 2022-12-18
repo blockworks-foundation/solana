@@ -6,6 +6,7 @@ pub const QUIC_PORT_OFFSET: u16 = 6;
 // give significant improvement or seem to impact stability)
 pub const QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS: usize = 128;
 pub const QUIC_MIN_STAKED_CONCURRENT_STREAMS: usize = 128;
+pub const QUIC_CHUNK_SIZE: usize = 128;
 
 pub const QUIC_TOTAL_STAKED_CONCURRENT_STREAMS: usize = 100_000;
 
