@@ -44,7 +44,8 @@ pub fn spl_programs(rent: &Rent) -> Vec<(Pubkey, AccountSharedData)> {
                     data: elf.to_vec(),
                     owner: solana_sdk::bpf_loader::id(),
                     executable: true,
-                    rent_epoch: 0,
+                    has_application_fees: false,
+                    rent_epoch_or_application_fees: 0,
                 }),
             )
         })

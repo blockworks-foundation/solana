@@ -554,6 +554,10 @@ pub mod enable_program_redeployment_cooldown {
     solana_sdk::declare_id!("J4HFT8usBxpcF63y46t1upYobJgChmKyZPm5uTBRg25Z");
 }
 
+pub mod add_application_fees_program {
+    solana_sdk::declare_id!("7hwmoguW2KEXkznQEsGfqGA9XTpGvScVae5MroWX5A9o");
+}
+
 lazy_static! {
     /// Map of feature identifiers to user-visible description
     pub static ref FEATURE_NAMES: HashMap<Pubkey, &'static str> = [
@@ -687,6 +691,7 @@ lazy_static! {
         (cap_transaction_accounts_data_size::id(), "cap transaction accounts data size up to its compute unit limits #27839"),
         (enable_alt_bn128_syscall::id(), "add alt_bn128 syscalls #27961"),
         (enable_program_redeployment_cooldown::id(), "enable program redeployment cooldown #29135"),
+        (add_application_fees_program::id(), "Add application fees program"),
         /*************** ADD NEW FEATURES HERE ***************/
     ]
     .iter()
