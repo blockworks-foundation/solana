@@ -65,6 +65,9 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         wait_to_vote_slot: config.wait_to_vote_slot,
         ledger_column_options: config.ledger_column_options.clone(),
         runtime_config: config.runtime_config.clone(),
+        replay_slots_concurrently: config.replay_slots_concurrently,
+        clique_addr: config.clique_addr,
+        clique_peers: config.clique_peers.clone(),
     }
 }
 

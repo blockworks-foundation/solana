@@ -32,6 +32,7 @@ pub(crate) fn spawn_shred_sigverify(
     shred_fetch_receiver: Receiver<PacketBatch>,
     retransmit_sender: Sender<Vec</*shred:*/ Vec<u8>>>,
     verified_sender: Sender<Vec<PacketBatch>>,
+    clique_outbound_sender: Sender<Vec</*shred:*/ Vec<u8>>>,
     turbine_disabled: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     let recycler_cache = RecyclerCache::warmed();
@@ -50,6 +51,7 @@ pub(crate) fn spawn_shred_sigverify(
                 &shred_fetch_receiver,
                 &retransmit_sender,
                 &verified_sender,
+                &clique_outbound_sender,
                 &turbine_disabled,
                 &mut stats,
             ) {
@@ -71,6 +73,7 @@ fn run_shred_sigverify(
     shred_fetch_receiver: &Receiver<PacketBatch>,
     retransmit_sender: &Sender<Vec</*shred:*/ Vec<u8>>>,
     verified_sender: &Sender<Vec<PacketBatch>>,
+    clique_outbound_sender: &Sender<Vec</*shred:*/ Vec<u8>>>,
     turbine_disabled: &AtomicBool,
     stats: &mut ShredSigVerifyStats,
 ) -> Result<(), Error> {
@@ -101,8 +104,9 @@ fn run_shred_sigverify(
         .collect();
     stats.num_retransmit_shreds += shreds.len();
     if !turbine_disabled.load(Ordering::Relaxed) {
-        retransmit_sender.send(shreds)?;
+        retransmit_sender.send(shreds.clone())?;
         verified_sender.send(packets)?;
+        clique_outbound_sender.send(shreds)?;
     }
     stats.elapsed_micros += now.elapsed().as_micros() as u64;
     Ok(())

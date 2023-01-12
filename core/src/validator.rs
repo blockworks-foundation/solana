@@ -176,6 +176,9 @@ pub struct ValidatorConfig {
     pub wait_to_vote_slot: Option<Slot>,
     pub ledger_column_options: LedgerColumnOptions,
     pub runtime_config: RuntimeConfig,
+    pub replay_slots_concurrently: bool,
+    pub clique_addr: Option<SocketAddr>,
+    pub clique_peers: Arc<Vec<SocketAddr>>,
 }
 
 impl Default for ValidatorConfig {
@@ -239,6 +242,9 @@ impl Default for ValidatorConfig {
             wait_to_vote_slot: None,
             ledger_column_options: LedgerColumnOptions::default(),
             runtime_config: RuntimeConfig::default(),
+            replay_slots_concurrently: false,
+            clique_addr: None,
+            clique_peers: Default::default(),
         }
     }
 }
@@ -981,6 +987,7 @@ impl Validator {
             TvuSockets {
                 repair: node.sockets.repair,
                 retransmit: node.sockets.retransmit_sockets,
+                clique: node.sockets.clique_sockets,
                 fetch: node.sockets.tvu,
                 forwards: node.sockets.tvu_forwards,
                 ancestor_hashes_requests: node.sockets.ancestor_hashes_requests,
@@ -1022,6 +1029,8 @@ impl Validator {
             config.runtime_config.log_messages_bytes_limit,
             &connection_cache,
             &prioritization_fee_cache,
+            config.clique_addr,
+            config.clique_peers.clone(),
         );
 
         let tpu = Tpu::new(

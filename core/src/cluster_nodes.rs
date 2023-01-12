@@ -1,3 +1,7 @@
+use std::cmp::min;
+
+use crate::clique_stage::CliqueStage;
+
 use {
     crate::{broadcast_stage::BroadcastStage, retransmit_stage::RetransmitStage},
     itertools::Itertools,
@@ -139,7 +143,8 @@ impl<T> ClusterNodes<T> {
 
 impl ClusterNodes<BroadcastStage> {
     pub fn new(cluster_info: &ClusterInfo, stakes: &HashMap<Pubkey, u64>) -> Self {
-        new_cluster_nodes(cluster_info, stakes)
+        let nodes = collect_stake_sorted_nodes(cluster_info, stakes);
+        new_cluster_nodes(cluster_info.id(), nodes)
     }
 
     pub(crate) fn get_broadcast_peer(&self, shred: &ShredId) -> Option<&ContactInfo> {
@@ -150,7 +155,153 @@ impl ClusterNodes<BroadcastStage> {
     }
 }
 
+impl ClusterNodes<CliqueStage> {
+    pub fn new(self_pubkey: Pubkey, clique_nodes: &Vec<(Pubkey, SocketAddr)>) -> Self {
+        // all nodes in clique have the same stake weight
+        let stake = 1;
+
+        let nodes = clique_nodes
+            .iter()
+            .map(|(pk, addr)| {
+                let sparse_contact_info = ContactInfo {
+                    id: *pk,
+                    tvu: *addr,
+                    ..Default::default()
+                };
+                Node {
+                    node: NodeId::from(sparse_contact_info),
+                    stake,
+                }
+            })
+            .sorted_by_key(|node| Reverse(node.pubkey()))
+            // Since sorted_by_key is stable, in case of duplicates, this
+            // will keep nodes with contact-info.
+            .dedup_by(|a, b| a.pubkey() == b.pubkey())
+            .collect();
+
+        new_cluster_nodes(self_pubkey, nodes)
+    }
+
+    pub(crate) fn get_retransmit_addrs(
+        &self,
+        shred: &ShredId,
+        fanout: usize,
+    ) -> (/*root_distance:*/ usize, Vec<SocketAddr>) {
+        let RetransmitPeers {
+            root_distance,
+            neighbors,
+            children,
+            addrs,
+            frwds: _
+        } = self.get_retransmit_peers(shred, fanout);
+
+        // Neigbors can include duplicates
+        let peers = neighbors
+            .iter()
+            .chain(children.iter())
+            .filter_map(|n| n.contact_info())
+            .filter(|node| addrs.get(&node.tvu) == Some(&node.id))
+            .map(|node| node.tvu)
+            .dedup()
+            .collect();
+        (root_distance, peers)
+    }
+
+    // this creates a graph that has the following structure & root distances for F=fanout:
+    // 0: [], there are no nodes with root distance 0
+    // 1: [0..F), all nodes w/ root distance 1 are linked as neighbours
+    // 2: [[F..2F),...,[F^2..F^2+F)], all nodes w/ root distance >=2 are linked to their parent [0..F)
+    // all neighbour and parent-child links are bi-directional
+    // RetransmitPeers.neighbors contains neigbor <-> neigbor and child->parent 
+    // RetransmitPeers.children contains parent -> child
+    pub fn get_retransmit_peers(&self, shred: &ShredId, fanout: usize) -> RetransmitPeers {
+        let shred_seed = shred.seed(&Pubkey::default());
+        let weighted_shuffle = self.weighted_shuffle.clone();
+
+        let mut addrs = HashMap::<SocketAddr, Pubkey>::with_capacity(self.nodes.len());
+        let frwds = Default::default();
+        let mut rng = ChaChaRng::from_seed(shred_seed);
+        let nodes: Vec<_> = weighted_shuffle
+            .shuffle(&mut rng)
+            .map(|index| &self.nodes[index])
+            .inspect(|node| {
+                if let Some(node) = node.contact_info() {
+                    addrs.entry(node.tvu).or_insert(node.id);
+                }
+            })
+            .collect();
+
+        if nodes.len() == 0 {
+            return RetransmitPeers {
+                root_distance: 0usize,
+                neighbors: Default::default(),
+                children: Default::default(),
+                addrs,
+                frwds
+            };
+        }
+
+        let self_index = nodes
+            .iter()
+            .position(|node| node.pubkey() == self.pubkey)
+            .unwrap();
+
+        // children can lie outside of the array range, but skip & take handle that case
+        let children_start = (self_index + 1) * fanout;
+        let children = nodes
+            .iter()
+            .skip(children_start)
+            .take(fanout)
+            .map(|n| *n)
+            .collect();
+
+        // calculate root_distance and level_end_index
+        let mut root_distance = 1;
+        while root_distance < 10 {
+            let next_level_start_index = (1..root_distance+1).map(|rd| fanout.pow(rd)).sum();
+            if self_index < next_level_start_index {
+                break;
+            }
+            root_distance += 1;
+        }
+
+        let neighbors = if root_distance == 1 {
+            // top level has no parent relationship, only neighbors
+            // ensure neighbor indexes don't lie outside of array range
+            let l1_len = min(nodes.len(), fanout);
+            let left_neighbor = min(l1_len - 1, self_index + fanout - 1) % fanout;
+            let right_neighbor = (self_index + 1) % l1_len;
+            if l1_len == 1 {
+                // if there's only one node, it doesn't have any neighbors
+                vec![]
+            } else if l1_len == 2 {
+                // left_neighbor == right_neighbor, so we only need to return it once
+                vec![nodes[left_neighbor]]
+            } else {
+                vec![nodes[left_neighbor], nodes[right_neighbor]]
+            }
+        } else {
+            // lower levels only have their parent as neighbor, no range checks needed
+            let parent_index = (self_index / fanout) - 1;
+            vec![nodes[parent_index]]
+        };
+
+        RetransmitPeers {
+            root_distance: root_distance as usize,
+            neighbors,
+            children,
+            addrs,
+            frwds,
+        }
+    }
+}
+
 impl ClusterNodes<RetransmitStage> {
+    pub fn new(cluster_info: &ClusterInfo, stakes: &HashMap<Pubkey, u64>) -> Self {
+        let nodes = collect_stake_sorted_nodes(cluster_info, stakes);
+        new_cluster_nodes(cluster_info.id(), nodes)
+    }
+    
     pub(crate) fn get_retransmit_addrs(
         &self,
         slot_leader: &Pubkey,
@@ -283,12 +434,8 @@ impl ClusterNodes<RetransmitStage> {
     }
 }
 
-pub fn new_cluster_nodes<T: 'static>(
-    cluster_info: &ClusterInfo,
-    stakes: &HashMap<Pubkey, u64>,
-) -> ClusterNodes<T> {
-    let self_pubkey = cluster_info.id();
-    let nodes = get_nodes(cluster_info, stakes);
+// nodes is expected to be sorted by (stake, pubkey) in descending order
+pub fn new_cluster_nodes<T: 'static>(self_pubkey: Pubkey, nodes: Vec<Node>) -> ClusterNodes<T> {
     let index: HashMap<_, _> = nodes
         .iter()
         .enumerate()
@@ -311,8 +458,12 @@ pub fn new_cluster_nodes<T: 'static>(
 
 // All staked nodes + other known tvu-peers + the node itself;
 // sorted by (stake, pubkey) in descending order.
-fn get_nodes(cluster_info: &ClusterInfo, stakes: &HashMap<Pubkey, u64>) -> Vec<Node> {
+fn collect_stake_sorted_nodes(
+    cluster_info: &ClusterInfo,
+    stakes: &HashMap<Pubkey, u64>,
+) -> Vec<Node> {
     let self_pubkey = cluster_info.id();
+
     // The local node itself.
     std::iter::once({
         let stake = stakes.get(&self_pubkey).copied().unwrap_or_default();
@@ -428,10 +579,9 @@ impl<T: 'static> ClusterNodesCache<T> {
             }
             inc_new_counter_info!("cluster_nodes-unknown_epoch_staked_nodes_root", 1);
         }
-        let nodes = Arc::new(new_cluster_nodes::<T>(
-            cluster_info,
-            &epoch_staked_nodes.unwrap_or_default(),
-        ));
+        let nodes =
+            collect_stake_sorted_nodes(cluster_info, &epoch_staked_nodes.unwrap_or_default());
+        let nodes = Arc::new(new_cluster_nodes::<T>(cluster_info.id(), nodes));
         *entry = Some((Instant::now(), Arc::clone(&nodes)));
         nodes
     }
@@ -555,6 +705,8 @@ pub(crate) fn check_feature_activation(
 
 #[cfg(test)]
 mod tests {
+    use solana_ledger::shred::layout::get_shred_id;
+
     use super::*;
 
     #[test]
@@ -563,7 +715,7 @@ mod tests {
         let (nodes, stakes, cluster_info) = make_test_cluster(&mut rng, 1_000, None);
         // ClusterInfo::tvu_peers excludes the node itself.
         assert_eq!(cluster_info.tvu_peers().len(), nodes.len() - 1);
-        let cluster_nodes = new_cluster_nodes::<RetransmitStage>(&cluster_info, &stakes);
+        let cluster_nodes = ClusterNodes::<RetransmitStage>::new(&cluster_info, &stakes);
         // All nodes with contact-info should be in the index.
         // Staked nodes with no contact-info should be included.
         assert!(cluster_nodes.nodes.len() > nodes.len());
@@ -696,5 +848,73 @@ mod tests {
             let mut retransmit_peers = get_retransmit_peers(/*fanout:*/ 3, k, &index);
             assert_eq!(retransmit_peers.next(), None);
         }
+    }
+
+
+    fn generate_cluster_nodes(num: usize) -> Vec<ClusterNodes<CliqueStage>> {
+        let keys: Vec<Pubkey> = (0..num).map(|i| Pubkey::find_program_address(&[&[(i / 256) as u8, (i % 256) as u8]], &Pubkey::default()).0).collect();
+        let addrs: Vec<SocketAddr> = (0..num).map(|i| format!("1.2.3.4:{}", 13000+i).parse().unwrap()).collect();
+        let clique = (0..num).map(|i| (keys[i], addrs[i])).collect();
+        return (0..num).map(|i| ClusterNodes::<CliqueStage>::new(keys[i], &clique)).collect();
+    }
+
+    #[test]
+    fn test_get_clique_peers_solo() {
+        let single_node_cluster = generate_cluster_nodes(1);
+        let shred_id = get_shred_id(&(0..83).collect::<Vec<u8>>().as_slice()).unwrap();
+        let peers = single_node_cluster[0].get_retransmit_peers(&shred_id, 2);
+        assert_eq!(peers.root_distance, 1);
+        assert_eq!(peers.neighbors.len(), 0);
+        assert_eq!(peers.children.len(), 0);
+    }
+
+    #[test]
+    fn test_get_clique_peers_neighbors() {
+        let dual_node_cluster = generate_cluster_nodes(4);
+        let shred_id = get_shred_id(&(0..83).collect::<Vec<u8>>().as_slice()).unwrap();
+
+        // L1: [0: n=1,3] [1: n=0,2] [2: n=1,3] [3: n=0,2]
+        for peers in dual_node_cluster.iter().map(|ns| ns.get_retransmit_peers(&shred_id, 4)) {
+            assert_eq!(peers.root_distance, 1);
+            assert_eq!(peers.neighbors.len(), 2);
+            assert_eq!(peers.children.len(), 0);
+        }
+    }
+
+
+    #[test]
+    fn test_get_clique_peers_children() {
+        let deep_cluster = generate_cluster_nodes(13);
+        let shred_id = get_shred_id(&(0..83).collect::<Vec<u8>>().as_slice()).unwrap();
+        let peers: Vec<_> = deep_cluster.iter().map(|ns| ns.get_retransmit_peers(&shred_id, 3)).collect();
+
+        // L1: [0: n=1,2 c=4,5,6] [1: n=0,2 c=7,8,9] [2: n=0,1 c=10,11,12]
+        let l1: Vec<_> = peers.iter().filter(|ps| ps.root_distance == 1).collect();
+        assert_eq!(l1.len(), 3);
+        for peers in l1 {
+            assert_eq!(peers.neighbors.len(), 2);
+            assert_eq!(peers.children.len(), 3);
+        }
+
+        // L2: [4: n=0 c=12], [5: n=0], ..., [11: n=2]
+        let l2: Vec<_> = peers.iter().filter(|ps| ps.root_distance == 2).sorted_by_key(|ps| -1 * ps.children.len() as i64).collect();
+        assert_eq!(l2.len(), 9);
+        for (i, peers) in l2.iter().enumerate() {
+            assert_eq!(peers.neighbors.len(), 1);
+            if i == 0 {
+                assert_eq!(peers.children.len(), 1);
+             } else {
+                assert_eq!(peers.children.len(), 0);
+             }
+        }
+
+        // L3: [12: n=4]
+        let l3: Vec<_> = peers.iter().filter(|ps| ps.root_distance == 3).collect();
+        assert_eq!(l3.len(), 1);
+        for peers in l3 {
+            assert_eq!(peers.neighbors.len(), 1);
+            assert_eq!(peers.children.len(), 0);
+        }
+
     }
 }

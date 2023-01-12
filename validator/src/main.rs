@@ -1,6 +1,7 @@
 #![allow(clippy::integer_arithmetic)]
 #[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
+use solana_net_utils::parse_host_port;
 use {
     clap::{
         crate_description, crate_name, value_t, value_t_or_exit, values_t, values_t_or_exit, App,
@@ -830,6 +831,30 @@ pub fn main() {
                 .validator(solana_net_utils::is_host)
                 .help("Gossip DNS name or IP address for the validator to advertise in gossip \
                        [default: ask --entrypoint, or 127.0.0.1 when --entrypoint is not provided]"),
+        )
+        .arg(
+            Arg::with_name("clique_port")
+                .long("clique-port")
+                .value_name("PORT")
+                .takes_value(true)
+                .help("Clique port number for the validator"),
+        )
+        .arg(
+            Arg::with_name("clique_bind_address")
+                .long("clique-bind-address")
+                .value_name("HOST")
+                .takes_value(true)
+                .validator(solana_net_utils::is_host)
+                .help("IP address to bind the Clique port [default: --bind_address]"),
+        )
+        .arg(
+            Arg::with_name("clique_peers")
+                .long("clique-peers")
+                .value_name("HOST:PORT")
+                .multiple(true)
+                .takes_value(true)
+                .validator(solana_net_utils::is_host_port)
+                .help("Clique bootstrap peers")
         )
         .arg(
             Arg::with_name("tpu_host_addr")
@@ -2333,6 +2358,13 @@ pub fn main() {
     } else {
         bind_address
     };
+    let clique_bind_address = if matches.is_present("clique_bind_address") {
+        solana_net_utils::parse_host(matches.value_of("clique_bind_address").unwrap())
+            .expect("invalid clique_bind_address")
+    } else {
+        bind_address
+    };
+
 
     let contact_debug_interval = value_t_or_exit!(matches, "contact_debug_interval", u64);
 
@@ -2619,6 +2651,14 @@ pub fn main() {
                 // https://github.com/solana-labs/solana/issues/12250
             )
         }),
+        clique_addr: value_t!(matches, "clique_port", u16).ok().map(|clique_port|
+            SocketAddr::new(clique_bind_address, clique_port)
+        ),
+        clique_peers: Arc::new(values_t!(matches, "clique_peers", String)
+            .unwrap_or_default()
+            .iter()
+            .map(|peer| parse_host_port(peer).expect("HOST:PORT"))
+            .collect()),
         pubsub_config: PubSubConfig {
             enable_block_subscription: matches.is_present("rpc_pubsub_enable_block_subscription"),
             enable_vote_subscription: matches.is_present("rpc_pubsub_enable_vote_subscription"),
