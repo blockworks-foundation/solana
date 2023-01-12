@@ -2795,6 +2795,7 @@ pub struct Sockets {
     pub broadcast: Vec<UdpSocket>,
     pub repair: UdpSocket,
     pub retransmit_sockets: Vec<UdpSocket>,
+    pub clique_sockets: Vec<UdpSocket>,
     pub serve_repair: UdpSocket,
     pub ancestor_hashes_requests: UdpSocket,
     pub tpu_quic: UdpSocket,
@@ -2833,6 +2834,7 @@ impl Node {
             SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), rpc_pubsub_port);
 
         let broadcast = vec![UdpSocket::bind("0.0.0.0:0").unwrap()];
+        let clique_sockets = vec![UdpSocket::bind("0.0.0.0:0").unwrap()];
         let retransmit_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
         let serve_repair = UdpSocket::bind("127.0.0.1:0").unwrap();
         let ancestor_hashes_requests = UdpSocket::bind("0.0.0.0:0").unwrap();
@@ -2865,6 +2867,7 @@ impl Node {
                 broadcast,
                 repair,
                 retransmit_sockets: vec![retransmit_socket],
+                clique_sockets,
                 serve_repair,
                 ancestor_hashes_requests,
                 tpu_quic,
@@ -2909,6 +2912,7 @@ impl Node {
             bind_two_in_range_with_offset(bind_ip_addr, port_range, QUIC_PORT_OFFSET).unwrap();
         let (tpu_vote_port, tpu_vote) = Self::bind(bind_ip_addr, port_range);
         let (_, retransmit_socket) = Self::bind(bind_ip_addr, port_range);
+        let (_, clique_socket) = Self::bind(bind_ip_addr, port_range);
         let (repair_port, repair) = Self::bind(bind_ip_addr, port_range);
         let (serve_repair_port, serve_repair) = Self::bind(bind_ip_addr, port_range);
         let (_, broadcast) = Self::bind(bind_ip_addr, port_range);
@@ -2947,6 +2951,7 @@ impl Node {
                 broadcast: vec![broadcast],
                 repair,
                 retransmit_sockets: vec![retransmit_socket],
+                clique_sockets: vec![clique_socket],
                 serve_repair,
                 ancestor_hashes_requests,
                 tpu_quic,
@@ -3002,6 +3007,9 @@ impl Node {
         let (_, broadcast) =
             multi_bind_in_range(bind_ip_addr, port_range, 4).expect("broadcast multi_bind");
 
+        let (_, clique_sockets) =
+            multi_bind_in_range(bind_ip_addr, port_range, 8).expect("clique multi_bind");
+
         let (_, ancestor_hashes_requests) = Self::bind(bind_ip_addr, port_range);
 
         let info = ContactInfo {
@@ -3033,6 +3041,7 @@ impl Node {
                 broadcast,
                 repair,
                 retransmit_sockets,
+                clique_sockets,
                 serve_repair,
                 ip_echo: Some(ip_echo),
                 ancestor_hashes_requests,
@@ -3224,6 +3233,7 @@ mod tests {
                     broadcast: vec![],
                     repair: UdpSocket::bind("0.0.0.0:0").unwrap(),
                     retransmit_sockets: vec![],
+                    clique_sockets: vec![],
                     serve_repair: UdpSocket::bind("0.0.0.0:0").unwrap(),
                     ancestor_hashes_requests: UdpSocket::bind("0.0.0.0:0").unwrap(),
                     tpu_quic: UdpSocket::bind("0.0.0.0:0").unwrap(),

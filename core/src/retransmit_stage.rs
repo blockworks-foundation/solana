@@ -124,7 +124,7 @@ impl RetransmitStats {
 type ShredFilter = LruCache<ShredId, Vec<u64>>;
 
 // Returns true if shred is already received and should skip retransmit.
-fn should_skip_retransmit(
+pub(crate) fn should_skip_retransmit(
     key: ShredId,
     shred: &[u8],
     shreds_received: &mut ShredFilter,
@@ -149,7 +149,7 @@ fn should_skip_retransmit(
     }
 }
 
-fn maybe_reset_shreds_received_cache(
+pub(crate) fn maybe_reset_shreds_received_cache(
     shreds_received: &mut ShredFilter,
     packet_hasher: &mut PacketHasher,
     hasher_reset_ts: &mut Instant,

@@ -24,9 +24,12 @@ dashmap = { version = "4.0.2", features = ["rayon", "raw-api"] }
 eager = "0.1.0"
 etcd-client = { version = "0.8.1", features = ["tls"] }
 fs_extra = "1.2.0"
+futures = "0.3.1"
+futures-lite = "1.12.0"
 histogram = "0.6.9"
 itertools = "0.10.5"
 lazy_static = "1.4.0"
+libp2p = { git = "https://github.com/mschneider/rust-libp2p/", branch = "solana-compat", features=["async-std", "gossipsub", "identify", "macros", "noise", "ping", "tcp", "yamux"] }
 log = "0.4.17"
 lru = "0.7.7"
 min-max-heap = "1.3.0"

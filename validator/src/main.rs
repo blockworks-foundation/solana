@@ -1,6 +1,7 @@
 #![allow(clippy::integer_arithmetic)]
 #[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
+use solana_net_utils::parse_host_port;
 use {
     clap::{crate_name, value_t, value_t_or_exit, values_t, values_t_or_exit, ArgMatches},
     console::style,
@@ -879,6 +880,13 @@ pub fn main() {
     } else {
         bind_address
     };
+    let clique_bind_address = if matches.is_present("clique_bind_address") {
+        solana_net_utils::parse_host(matches.value_of("clique_bind_address").unwrap())
+            .expect("invalid clique_bind_address")
+    } else {
+        bind_address
+    };
+
 
     let contact_debug_interval = value_t_or_exit!(matches, "contact_debug_interval", u64);
 
@@ -1140,6 +1148,14 @@ pub fn main() {
                 // https://github.com/solana-labs/solana/issues/12250
             )
         }),
+        clique_addr: value_t!(matches, "clique_port", u16).ok().map(|clique_port|
+            SocketAddr::new(clique_bind_address, clique_port)
+        ),
+        clique_peers: Arc::new(values_t!(matches, "clique_peers", String)
+            .unwrap_or_default()
+            .iter()
+            .map(|peer| parse_host_port(peer).expect("HOST:PORT"))
+            .collect()),
         pubsub_config: PubSubConfig {
             enable_block_subscription: matches.is_present("rpc_pubsub_enable_block_subscription"),
             enable_vote_subscription: matches.is_present("rpc_pubsub_enable_vote_subscription"),

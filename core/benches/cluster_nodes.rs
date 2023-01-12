@@ -25,7 +25,7 @@ fn make_cluster_nodes<R: Rng>(
     unstaked_ratio: Option<(u32, u32)>,
 ) -> (Vec<ContactInfo>, ClusterNodes<RetransmitStage>) {
     let (nodes, stakes, cluster_info) = make_test_cluster(rng, 5_000, unstaked_ratio);
-    let cluster_nodes = new_cluster_nodes::<RetransmitStage>(&cluster_info, &stakes);
+    let cluster_nodes = new_cluster_nodes::<RetransmitStage>(cluster_info.id(), &stakes);
     (nodes, cluster_nodes)
 }
 

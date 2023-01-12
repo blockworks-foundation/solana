@@ -191,8 +191,8 @@ pub enum ShredType {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 #[serde(into = "u8", try_from = "u8")]
 enum ShredVariant {
-    LegacyCode, // 0b0101_1010
-    LegacyData, // 0b1010_0101
+    LegacyCode, // 0b0101_1010 // 0x5A
+    LegacyData, // 0b1010_0101 // 0xA5
     // proof_size is the number of proof entries in the merkle tree branch.
     MerkleCode(/*proof_size:*/ u8), // 0b0100_????
     MerkleData(/*proof_size:*/ u8), // 0b1000_????

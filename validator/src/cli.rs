@@ -362,6 +362,30 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                        [default: ask --entrypoint, or 127.0.0.1 when --entrypoint is not provided]"),
         )
         .arg(
+            Arg::with_name("clique_port")
+                .long("clique-port")
+                .value_name("PORT")
+                .takes_value(true)
+                .help("Clique port number for the validator"),
+        )
+        .arg(
+            Arg::with_name("clique_bind_address")
+                .long("clique-bind-address")
+                .value_name("HOST")
+                .takes_value(true)
+                .validator(solana_net_utils::is_host)
+                .help("IP address to bind the Clique port [default: --bind_address]"),
+        )
+        .arg(
+            Arg::with_name("clique_peers")
+                .long("clique-peers")
+                .value_name("HOST:PORT")
+                .multiple(true)
+                .takes_value(true)
+                .validator(solana_net_utils::is_host_port)
+                .help("Clique bootstrap peers")
+        )
+        .arg(
             Arg::with_name("tpu_host_addr")
                 .long("tpu-host-addr")
                 .value_name("HOST:PORT")

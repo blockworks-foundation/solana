@@ -1,10 +1,10 @@
 //! The `tvu` module implements the Transaction Validation Unit, a multi-stage transaction
 //! validation pipeline in software.
-
 use {
     crate::{
         broadcast_stage::RetransmitSlotsSender,
         cache_block_meta_service::CacheBlockMetaSender,
+        clique_stage::CliqueStage,
         cluster_info_vote_listener::{
             GossipDuplicateConfirmedSlotsReceiver, GossipVerifiedVoteHashReceiver,
             VerifiedVoteReceiver, VoteTracker,
@@ -48,7 +48,7 @@ use {
     solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Keypair},
     std::{
         collections::HashSet,
-        net::UdpSocket,
+        net::{SocketAddr, UdpSocket},
         sync::{atomic::AtomicBool, Arc, RwLock},
         thread::{self, JoinHandle},
     },
@@ -58,6 +58,7 @@ pub struct Tvu {
     fetch_stage: ShredFetchStage,
     shred_sigverify: JoinHandle<()>,
     retransmit_stage: RetransmitStage,
+    clique_stage: Option<CliqueStage>,
     window_service: WindowService,
     cluster_slots_service: ClusterSlotsService,
     replay_stage: ReplayStage,
@@ -72,6 +73,7 @@ pub struct TvuSockets {
     pub fetch: Vec<UdpSocket>,
     pub repair: UdpSocket,
     pub retransmit: Vec<UdpSocket>,
+    pub clique: Vec<UdpSocket>,
     pub forwards: Vec<UdpSocket>,
     pub ancestor_hashes_requests: UdpSocket,
 }
@@ -131,11 +133,14 @@ impl Tvu {
         log_messages_bytes_limit: Option<usize>,
         connection_cache: &Arc<ConnectionCache>,
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
+        clique_addr: Option<SocketAddr>,
+        clique_peers: Arc<Vec<SocketAddr>>
     ) -> Result<Self, String> {
         let TvuSockets {
             repair: repair_socket,
             fetch: fetch_sockets,
             retransmit: retransmit_sockets,
+            clique: clique_outbound_sockets,
             forwards: tvu_forward_sockets,
             ancestor_hashes_requests: ancestor_hashes_socket,
         } = sockets;
@@ -151,7 +156,7 @@ impl Tvu {
             fetch_sockets,
             forward_sockets,
             repair_socket.clone(),
-            fetch_sender,
+            fetch_sender.clone(),
             tvu_config.shred_version,
             bank_forks.clone(),
             cluster_info.clone(),
@@ -160,6 +165,8 @@ impl Tvu {
 
         let (verified_sender, verified_receiver) = unbounded();
         let (retransmit_sender, retransmit_receiver) = unbounded();
+        let (clique_outbound_sender, clique_outbound_receiver) = unbounded();
+
         let shred_sigverify = sigverify_shreds::spawn_shred_sigverify(
             cluster_info.id(),
             bank_forks.clone(),
@@ -167,9 +174,25 @@ impl Tvu {
             fetch_receiver,
             retransmit_sender.clone(),
             verified_sender,
+            clique_outbound_sender,
             turbine_disabled,
         );
 
+        let clique_blockstore = blockstore.clone();
+        let slot_query = move || clique_blockstore.highest_slot().unwrap_or(None).unwrap_or_default();
+        let clique_stage = clique_addr.map( |clique_addr|
+            CliqueStage::new(
+                clique_addr,
+                clique_peers,
+                clique_outbound_receiver,
+                Arc::new(clique_outbound_sockets),
+                exit.clone(),
+                authorized_voter_keypairs.read().unwrap()[0].clone(),
+                cluster_info.my_contact_info().tvu,
+                cluster_info.socket_addr_space().clone(),
+                slot_query,
+            )
+        );
         let retransmit_stage = RetransmitStage::new(
             bank_forks.clone(),
             leader_schedule_cache.clone(),
@@ -310,6 +333,7 @@ impl Tvu {
             fetch_stage,
             shred_sigverify,
             retransmit_stage,
+            clique_stage,
             window_service,
             cluster_slots_service,
             replay_stage,
@@ -331,6 +355,9 @@ impl Tvu {
             self.ledger_cleanup_service.unwrap().join()?;
         }
         self.replay_stage.join()?;
+        if let Some(clique_stage) = self.clique_stage {
+            clique_stage.join()?
+        }
         self.cost_update_service.join()?;
         self.voting_service.join()?;
         if let Some(warmup_service) = self.warm_quic_cache_service {
@@ -416,6 +443,7 @@ pub mod tests {
                 TvuSockets {
                     repair: target1.sockets.repair,
                     retransmit: target1.sockets.retransmit_sockets,
+                    clique: target1.sockets.clique_sockets,
                     fetch: target1.sockets.tvu,
                     forwards: target1.sockets.tvu_forwards,
                     ancestor_hashes_requests: target1.sockets.ancestor_hashes_requests,
@@ -456,6 +484,8 @@ pub mod tests {
             None,
             &Arc::new(ConnectionCache::default()),
             &_ignored_prioritization_fee_cache,
+            None,
+            Default::default()
         )
         .expect("assume success");
         exit.store(true, Ordering::Relaxed);
