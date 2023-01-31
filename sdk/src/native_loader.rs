@@ -25,7 +25,8 @@ pub fn create_loadable_account_with_fields(
         owner: id(),
         data: name.as_bytes().to_vec(),
         executable: true,
-        rent_epoch,
+        has_application_fees: false,
+        rent_epoch_or_application_fees: rent_epoch,
     })
 }
 

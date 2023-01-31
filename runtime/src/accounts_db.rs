@@ -858,9 +858,37 @@ impl<'a> ReadableAccount for LoadedAccount<'a> {
     fn rent_epoch(&self) -> Epoch {
         match self {
             LoadedAccount::Stored(stored_account_meta) => {
-                stored_account_meta.account_meta.rent_epoch
+                if stored_account_meta.account_meta.has_application_fees {
+                    0
+                } else {
+                    stored_account_meta
+                        .account_meta
+                        .rent_epoch_or_application_fees
+                }
             }
             LoadedAccount::Cached(cached_account) => cached_account.account.rent_epoch(),
+        }
+    }
+    fn has_application_fees(&self) -> bool {
+        match self {
+            LoadedAccount::Stored(stored_account_meta) => {
+                stored_account_meta.account_meta.has_application_fees
+            }
+            LoadedAccount::Cached(cached_account) => cached_account.account.has_application_fees(),
+        }
+    }
+    fn application_fees(&self) -> u64 {
+        match self {
+            LoadedAccount::Stored(stored_account_meta) => {
+                if stored_account_meta.account_meta.has_application_fees {
+                    stored_account_meta
+                        .account_meta
+                        .rent_epoch_or_application_fees
+                } else {
+                    0
+                }
+            }
+            LoadedAccount::Cached(cached_account) => cached_account.account.application_fees(),
         }
     }
     fn to_account_shared_data(&self) -> AccountSharedData {
@@ -2143,7 +2171,21 @@ impl<'a> ReadableAccount for StoredAccountMeta<'a> {
         self.account_meta.executable
     }
     fn rent_epoch(&self) -> Epoch {
-        self.account_meta.rent_epoch
+        if self.account_meta.has_application_fees {
+            0
+        } else {
+            self.account_meta.rent_epoch_or_application_fees
+        }
+    }
+    fn has_application_fees(&self) -> bool {
+        self.account_meta.has_application_fees
+    }
+    fn application_fees(&self) -> u64 {
+        if self.account_meta.has_application_fees {
+            self.account_meta.rent_epoch_or_application_fees
+        } else {
+            0
+        }
     }
 }
 
@@ -8757,7 +8799,7 @@ impl AccountsDb {
         let mut account = AccountSharedData::new(lamports, space, &owner);
         // just non-zero rent epoch. filler accounts are rent-exempt
         let dummy_rent_epoch = 2;
-        account.set_rent_epoch(dummy_rent_epoch);
+        account.set_rent_epoch(dummy_rent_epoch).unwrap();
         (account, hash)
     }
 
@@ -9601,7 +9643,8 @@ pub mod tests {
             lamports: 1,
             owner: Pubkey::new(&[2; 32]),
             executable: false,
-            rent_epoch: 0,
+            has_application_fees: false,
+            rent_epoch_or_application_fees: 0,
         };
         let offset = 3;
         let hash = Hash::new(&[2; 32]);
@@ -9698,7 +9741,8 @@ pub mod tests {
             lamports,
             owner,
             executable,
-            rent_epoch,
+            has_application_fees: false,
+            rent_epoch_or_application_fees: rent_epoch,
         };
         let offset = 99;
         let stored_size = 101;
@@ -12324,14 +12368,16 @@ pub mod tests {
             lamports,
             owner,
             executable,
-            rent_epoch,
+            has_application_fees: false,
+            rent_epoch_or_application_fees: rent_epoch,
         };
         let data = Vec::new();
         let account = Account {
             lamports,
             owner,
             executable,
-            rent_epoch,
+            has_application_fees: false,
+            rent_epoch_or_application_fees: rent_epoch,
             data: data.clone(),
         };
         let offset = 99;

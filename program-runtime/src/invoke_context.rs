@@ -456,7 +456,7 @@ impl<'a> InvokeContext<'a> {
                             .checked_add(u128::from(account.lamports()))
                             .ok_or(InstructionError::UnbalancedInstruction)?;
                         if is_writable && !pre_account.executable() {
-                            pre_account.update(account.clone());
+                            pre_account.update(account.clone())?;
                         }
 
                         let pre_data_len = pre_account.data().len() as i64;

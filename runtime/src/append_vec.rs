@@ -169,8 +169,11 @@ pub struct AccountMeta {
     pub owner: Pubkey,
     /// this account's data contains a loaded program (and is now read-only)
     pub executable: bool,
-    /// the epoch at which this account will next owe rent
-    pub rent_epoch: Epoch,
+    // has application fees
+    pub has_application_fees: bool,
+    /// the epoch at which this account will next owe rent or application fees for the account
+    /// switched by the boolean above
+    pub rent_epoch_or_application_fees: u64,
 }
 
 impl<'a, T: ReadableAccount> From<&'a T> for AccountMeta {
@@ -179,7 +182,12 @@ impl<'a, T: ReadableAccount> From<&'a T> for AccountMeta {
             lamports: account.lamports(),
             owner: *account.owner(),
             executable: account.executable(),
-            rent_epoch: account.rent_epoch(),
+            has_application_fees: account.has_application_fees(),
+            rent_epoch_or_application_fees: if account.has_application_fees() {
+                account.application_fees()
+            } else {
+                account.rent_epoch()
+            },
         }
     }
 }
@@ -213,7 +221,8 @@ impl<'a> StoredAccountMeta<'a> {
             lamports: self.account_meta.lamports,
             owner: self.account_meta.owner,
             executable: self.account_meta.executable,
-            rent_epoch: self.account_meta.rent_epoch,
+            has_application_fees: self.account_meta.has_application_fees,
+            rent_epoch_or_application_fees: self.account_meta.rent_epoch_or_application_fees,
             data: self.data.to_vec(),
         })
     }
@@ -649,8 +658,13 @@ impl AppendVec {
                 .map(|account| AccountMeta {
                     lamports: account.lamports(),
                     owner: *account.owner(),
-                    rent_epoch: account.rent_epoch(),
                     executable: account.executable(),
+                    has_application_fees: account.has_application_fees(),
+                    rent_epoch_or_application_fees: if account.has_application_fees() {
+                        account.application_fees()
+                    } else {
+                        account.rent_epoch()
+                    },
                 })
                 .unwrap_or_default();
 
@@ -925,13 +939,15 @@ pub mod tests {
             lamports: 1,
             owner: Pubkey::new_unique(),
             executable: true,
-            rent_epoch: 3,
+            has_application_fees: false,
+            rent_epoch_or_application_fees: 3,
         };
         let def2_account = Account {
             lamports: def1.lamports,
             owner: def1.owner,
             executable: def1.executable,
-            rent_epoch: def1.rent_epoch,
+            has_application_fees: def1.has_application_fees,
+            rent_epoch_or_application_fees: def1.rent_epoch_or_application_fees,
             data: Vec::new(),
         };
         let def2 = AccountMeta::from(&def2_account);

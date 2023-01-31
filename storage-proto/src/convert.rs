@@ -1068,6 +1068,12 @@ impl From<TransactionError> for tx_by_addr::TransactionError {
                             InstructionError::MaxInstructionTraceLengthExceeded => {
                                 tx_by_addr::InstructionErrorType::MaxInstructionTraceLengthExceeded
                             }
+                            InstructionError::CannotSetAppFeesForAccountWithRentEpoch => {
+                                tx_by_addr::InstructionErrorType::InvalidAccountData
+                            }
+                            InstructionError::CannotSetRentEpochForAccountWithAppFees => {
+                                tx_by_addr::InstructionErrorType::InvalidAccountData
+                            }
                         } as i32,
                         custom: match instruction_error {
                             InstructionError::Custom(custom) => {

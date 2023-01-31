@@ -134,12 +134,13 @@ impl PreAccount {
         Ok(())
     }
 
-    pub fn update(&mut self, account: AccountSharedData) {
+    pub fn update(&mut self, account: AccountSharedData) -> Result<(), InstructionError> {
         let rent_epoch = self.account.rent_epoch();
         self.account = account;
-        self.account.set_rent_epoch(rent_epoch);
+        self.account.set_rent_epoch(rent_epoch)?;
 
         self.changed = true;
+        Ok(())
     }
 
     pub fn key(&self) -> &Pubkey {
@@ -251,10 +252,10 @@ mod tests {
             self.post.set_data(post);
             self
         }
-        pub fn rent_epoch(mut self, pre: u64, post: u64) -> Self {
-            self.pre.account.set_rent_epoch(pre);
-            self.post.set_rent_epoch(post);
-            self
+        pub fn rent_epoch(mut self, pre: u64, post: u64) -> Result<Self, InstructionError> {
+            self.pre.account.set_rent_epoch(pre)?;
+            self.post.set_rent_epoch(post)?;
+            Ok(self)
         }
         pub fn verify(&self) -> Result<(), InstructionError> {
             self.pre.verify(
@@ -497,7 +498,7 @@ mod tests {
         );
         assert_eq!(
             Change::new(&alice_program_id, &system_program::id())
-                .rent_epoch(0, 1)
+                .rent_epoch(0, 1).unwrap()
                 .verify(),
             Err(InstructionError::RentEpochModified),
             "no one touches rent_epoch"

@@ -350,13 +350,19 @@ impl Accounts {
                                 .load_with_fixed_root(ancestors, key)
                                 .map(|(mut account, _)| {
                                     if message.is_writable(i) {
-                                        let rent_due = rent_collector
+                                        let res = rent_collector
                                             .collect_from_existing_account(
                                                 key,
                                                 &mut account,
                                                 self.accounts_db.filler_account_suffix.as_ref(),
-                                            )
-                                            .rent_amount;
+                                            );
+                                        let rent_due = match res {
+                                            Ok(info) => info.rent_amount,
+                                            Err(_) => {
+                                                error!("Tried to collect rent from an account with application fees (should not happen)");
+                                                0
+                                            }
+                                        };
                                         (account, rent_due)
                                     } else {
                                         (account, 0)
@@ -1971,11 +1977,11 @@ mod tests {
         let key1 = Pubkey::new(&[5u8; 32]);
 
         let mut account = AccountSharedData::new(1, 0, &Pubkey::default());
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key0, account));
 
         let mut account = AccountSharedData::new(2, 1, &Pubkey::default());
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key1, account));
 
         let instructions = vec![CompiledInstruction::new(2, &(), vec![0, 1])];
@@ -2149,18 +2155,18 @@ mod tests {
         let key2 = Pubkey::new(&[6u8; 32]);
 
         let mut account = AccountSharedData::new(1, 0, &Pubkey::default());
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key0, account));
 
         let mut account = AccountSharedData::new(40, 1, &Pubkey::default());
         account.set_executable(true);
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         account.set_owner(native_loader::id());
         accounts.push((key1, account));
 
         let mut account = AccountSharedData::new(41, 1, &Pubkey::default());
         account.set_executable(true);
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         account.set_owner(key1);
         accounts.push((key2, account));
 
@@ -2380,17 +2386,17 @@ mod tests {
         let key2 = Pubkey::new(&[6u8; 32]);
 
         let mut account = AccountSharedData::new(1, 0, &Pubkey::default());
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key0, account));
 
         let mut account = AccountSharedData::new(40, 1, &native_loader::id());
         account.set_executable(true);
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key1, account));
 
         let mut account = AccountSharedData::new(40, 1, &native_loader::id());
         account.set_executable(true);
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key2, account));
 
         let instructions = vec![CompiledInstruction::new(2, &(), vec![0, 1])];
@@ -2443,7 +2449,7 @@ mod tests {
         let programdata_key2 = Pubkey::new(&[8u8; 32]);
 
         let mut account = AccountSharedData::new(1, 0, &Pubkey::default());
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key0, account));
 
         let program_data = UpgradeableLoaderState::ProgramData {
@@ -2457,11 +2463,11 @@ mod tests {
         let mut account =
             AccountSharedData::new_data(40, &program, &bpf_loader_upgradeable::id()).unwrap();
         account.set_executable(true);
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key1, account));
         let mut account =
             AccountSharedData::new_data(40, &program_data, &bpf_loader_upgradeable::id()).unwrap();
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((programdata_key1, account));
 
         let program = UpgradeableLoaderState::Program {
@@ -2470,16 +2476,16 @@ mod tests {
         let mut account =
             AccountSharedData::new_data(40, &program, &bpf_loader_upgradeable::id()).unwrap();
         account.set_executable(true);
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key2, account));
         let mut account =
             AccountSharedData::new_data(40, &program_data, &bpf_loader_upgradeable::id()).unwrap();
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((programdata_key2, account));
 
         let mut account = AccountSharedData::new(40, 1, &native_loader::id()); // create mock bpf_loader_upgradeable
         account.set_executable(true);
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((bpf_loader_upgradeable::id(), account));
 
         let instructions = vec![CompiledInstruction::new(2, &(), vec![0, 1])];
@@ -2553,7 +2559,7 @@ mod tests {
         let key2 = Pubkey::new(&[6u8; 32]);
 
         let mut account = AccountSharedData::new(1, 0, &Pubkey::default());
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key0, account));
 
         let program_data = UpgradeableLoaderState::ProgramData {
@@ -2562,12 +2568,12 @@ mod tests {
         };
         let mut account =
             AccountSharedData::new_data(40, &program_data, &bpf_loader_upgradeable::id()).unwrap();
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key1, account));
 
         let mut account = AccountSharedData::new(40, 1, &native_loader::id());
         account.set_executable(true);
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         accounts.push((key2, account));
 
         let instructions = vec![CompiledInstruction::new(2, &(), vec![0, 1])];
@@ -2593,7 +2599,7 @@ mod tests {
         // Solution 1: include bpf_loader_upgradeable account
         let mut account = AccountSharedData::new(40, 1, &native_loader::id()); // create mock bpf_loader_upgradeable
         account.set_executable(true);
-        account.set_rent_epoch(1);
+        account.set_rent_epoch(1).unwrap();
         let accounts_with_upgradeable_loader = vec![
             accounts[0].clone(),
             accounts[1].clone(),
@@ -4230,7 +4236,7 @@ mod tests {
             AccountSharedData::new_data(1, &program_data, &Pubkey::default()).unwrap();
         let program_data_account_size = program_data_account.data().len();
         program_data_account.set_executable(true);
-        program_data_account.set_rent_epoch(0);
+        program_data_account.set_rent_epoch(0).unwrap();
         accounts.store_slow_uncached(0, &programdata_key, &program_data_account);
 
         let program_key = Pubkey::new(&[2u8; 32]);
@@ -4241,7 +4247,7 @@ mod tests {
             AccountSharedData::new_data(1, &program, &bpf_loader_upgradeable::id()).unwrap();
         let program_account_size = program_account.data().len();
         program_account.set_executable(true);
-        program_account.set_rent_epoch(0);
+        program_account.set_rent_epoch(0).unwrap();
         accounts.store_slow_uncached(0, &program_key, &program_account);
 
         let key0 = Pubkey::new(&[1u8; 32]);
