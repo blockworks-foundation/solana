@@ -294,6 +294,10 @@ where
     M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
     C: NewConnectionConfig,
 {
+    pub fn get_current_slot(&self) -> Slot {
+        self.leader_tpu_service.get_current_slot()
+    }
+
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
     pub async fn send_transaction(&self, transaction: &Transaction) -> bool {
@@ -649,6 +653,14 @@ impl LeaderTpuService {
             .read()
             .unwrap()
             .get_leader_sockets(current_slot, fanout_slots)
+    }
+
+    pub fn get_current_slot(&self) -> Slot {
+        let estimated_current_slot = self.recent_slots.estimated_current_slot();
+        // `first_slot` might have been advanced since caller last read the `estimated_current_slot`
+        // value. Take the greater of the two values to ensure we are reading from the latest
+        // leader schedule.
+        std::cmp::max(estimated_current_slot, self.first_slot)
     }
 
     async fn run(
