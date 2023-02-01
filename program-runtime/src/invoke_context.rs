@@ -99,6 +99,29 @@ struct SyscallContext {
     allocator: Rc<RefCell<dyn Alloc>>,
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ApplicationFeeChanges {
+    pub application_fees: HashMap<Pubkey, u64>,
+    pub rebated: HashMap<Pubkey, u64>,
+    pub updated: Vec<(Pubkey, u64)>,
+}
+
+impl ApplicationFeeChanges {
+    pub fn new() -> Self {
+        Self {
+            application_fees: HashMap::new(),
+            rebated: HashMap::new(),
+            updated: Vec::new(),
+        }
+    }
+}
+
+impl Default for ApplicationFeeChanges {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct InvokeContext<'a> {
     pub transaction_context: &'a mut TransactionContext,
     rent: Rent,
@@ -117,8 +140,7 @@ pub struct InvokeContext<'a> {
     pub blockhash: Hash,
     pub lamports_per_signature: u64,
     syscall_context: Vec<Option<SyscallContext>>,
-    pub application_fees: HashMap<Pubkey, u64>,
-    pub total_rebates_for_application_fees: u64,
+    pub application_fee_changes: ApplicationFeeChanges,
 }
 
 impl<'a> InvokeContext<'a> {
@@ -155,8 +177,11 @@ impl<'a> InvokeContext<'a> {
             blockhash,
             lamports_per_signature,
             syscall_context: Vec::new(),
-            application_fees,
-            total_rebates_for_application_fees: 0,
+            application_fee_changes: ApplicationFeeChanges {
+                application_fees,
+                rebated: HashMap::new(),
+                updated: Vec::new(),
+            },
         }
     }
 

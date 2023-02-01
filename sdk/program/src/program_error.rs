@@ -105,10 +105,10 @@ impl PrintProgramError for ProgramError {
             Self::InvalidRealloc => msg!("Error: InvalidRealloc"),
             Self::MaxInstructionTraceLengthExceeded => {
                 msg!("Error: MaxInstructionTraceLengthExceeded")
-            },
+            }
             Self::CannotSetAppFeesForAccountWithRentEpoch => {
                 msg!("Error: CannotSetAppFeesForAccountWithRentEpoch")
-            },
+            }
             Self::CannotSetRentEpochForAccountWithAppFees => {
                 msg!("Error: CannotSetRentEpochForAccountWithAppFees")
             }
@@ -186,10 +186,10 @@ impl From<ProgramError> for u64 {
                 } else {
                     error as u64
                 }
-            },
+            }
             ProgramError::CannotSetAppFeesForAccountWithRentEpoch => {
                 SETTING_APP_FEES_FOR_RENT_EPOCH
-            },
+            }
             ProgramError::CannotSetRentEpochForAccountWithAppFees => {
                 SETTING_RENT_EPOCH_FOR_APP_FEES
             }
@@ -257,13 +257,13 @@ impl TryFrom<InstructionError> for ProgramError {
             Self::Error::InvalidRealloc => Ok(Self::InvalidRealloc),
             Self::Error::MaxInstructionTraceLengthExceeded => {
                 Ok(Self::MaxInstructionTraceLengthExceeded)
-            },
+            }
             Self::Error::CannotSetAppFeesForAccountWithRentEpoch => {
                 Ok(Self::CannotSetAppFeesForAccountWithRentEpoch)
-            },
+            }
             Self::Error::CannotSetRentEpochForAccountWithAppFees => {
                 Ok(Self::CannotSetRentEpochForAccountWithAppFees)
-            },
+            }
             _ => Err(error),
         }
     }

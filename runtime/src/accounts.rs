@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use {
     crate::{
         account_overrides::AccountOverrides,
@@ -33,7 +35,6 @@ use {
     solana_sdk::{
         account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
         account_utils::StateMut,
-        application_fees::{self, ApplicationFeeStructure},
         bpf_loader_upgradeable::{self, UpgradeableLoaderState},
         clock::{BankId, Slot},
         feature_set::{
@@ -128,18 +129,7 @@ pub struct Accounts {
     pub(crate) account_locks: Mutex<AccountLocks>,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ApplicationFees {
-    pub pda_to_fees_maps: HashMap<Pubkey, u64>,
-}
-
-impl ApplicationFees {
-    pub fn new_empty() -> Self {
-        ApplicationFees {
-            pda_to_fees_maps: HashMap::new(),
-        }
-    }
-}
+pub type ApplicationFees = HashMap<Pubkey, u64>;
 
 // for the load instructions
 pub type TransactionRent = u64;
@@ -290,41 +280,18 @@ impl Accounts {
                 None
             };
         let mut accumulated_accounts_data_size: usize = 0;
+        let mut account_application_fees: HashMap<Pubkey, u64> = HashMap::new();
 
-        // process application fees for writable accounts
-        let application_fees_pid: Pubkey = application_fees::id();
-        let application_fees: HashMap<Pubkey, u64> = account_keys
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| message.is_writable(*index))
-            .into_iter()
-            .map(|(_, key)| {
-                let (writable_account_fees, _) =
-                    Pubkey::find_program_address(&[&key.to_bytes()], &application_fees_pid);
-                let account = self
-                    .accounts_db
-                    .load_with_fixed_root(ancestors, &writable_account_fees);
-                match account {
-                    Some(x) => {
-                        let fee_structure =
-                            bincode::deserialize::<ApplicationFeeStructure>(x.0.data());
-                        if let Ok(fee_structure) = fee_structure {
-                            Some((*key, fee_structure.fee_lamports))
-                        } else {
-                            None
-                        }
-                    }
-                    None => None,
-                }
-            })
-            .filter(|x| x.is_some())
-            .map(|x| x.unwrap())
-            .collect();
-
+        // we reverse the iteration over keys so that we collect all the application fees
+        // and then validate fees at the last
         let mut accounts = account_keys
             .iter()
             .enumerate()
+            .collect_vec()
+            .iter()
+            .rev()
             .map(|(i, key)| {
+                let (i, key) = (*i, *key);
                 let (account, loaded_programdata_account_size) = if !message.is_non_loader_key(i) {
                     // Fill in an empty account for the program slots.
                     (AccountSharedData::default(), 0)
@@ -371,12 +338,18 @@ impl Accounts {
                                 .unwrap_or_default()
                         };
 
+                        if account.has_application_fees {
+                            // if account has application fees insert the fees in the map
+                            account_application_fees.insert(*key, account.rent_epoch_or_application_fees);
+                        }
+
+                        // as we are reverse iterating we validate fee payer after collecting all application fees
                         if !validated_fee_payer {
                             if i != 0 {
                                 warn!("Payer index should be 0! {:?}", tx);
                             }
                             let application_fees_sum =
-                                application_fees.iter().map(|x| *x.1).sum::<u64>();
+                                account_application_fees.iter().map(|x| *x.1).sum::<u64>();
 
                             Self::validate_fee_payer(
                                 key,
@@ -474,9 +447,7 @@ impl Accounts {
                 program_indices,
                 rent: tx_rent,
                 rent_debits,
-                application_fees: ApplicationFees {
-                    pda_to_fees_maps: application_fees,
-                },
+                application_fees: account_application_fees,
             })
         } else {
             error_counters.account_not_found += 1;
@@ -1550,6 +1521,8 @@ pub mod test_utils {
 
 #[cfg(test)]
 mod tests {
+    use solana_program_runtime::invoke_context::ApplicationFeeChanges;
+
     use {
         super::*,
         crate::{
@@ -1607,7 +1580,7 @@ mod tests {
                 return_data: None,
                 executed_units: 0,
                 accounts_data_len_delta: 0,
-                application_fees_with_rebates: crate::bank::ApplicationFeesWithRebates::new(),
+                application_fees_changes: ApplicationFeeChanges::new(),
             },
             tx_executor_cache: Rc::new(RefCell::new(TransactionExecutorCache::default())),
         }

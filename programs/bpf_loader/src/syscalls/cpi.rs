@@ -992,9 +992,10 @@ fn update_callee_account(
         } else {
             if let Err(e) = callee_account
                 .borrow_mut()
-                .set_rent_epoch(caller_account.rent_epoch) {
-                    return Err(SyscallError::InstructionError(e).into());
-                }
+                .set_rent_epoch(caller_account.rent_epoch)
+            {
+                return Err(SyscallError::InstructionError(e).into());
+            }
         }
     }
 

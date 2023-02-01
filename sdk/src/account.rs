@@ -196,6 +196,7 @@ pub trait WritableAccount: ReadableAccount {
     fn copy_into_owner_from_slice(&mut self, source: &[u8]);
     fn set_executable(&mut self, executable: bool);
     fn set_rent_epoch(&mut self, epoch: Epoch) -> Result<(), InstructionError>;
+    fn set_application_fees(&mut self, fees: u64) -> Result<(), InstructionError>;
     fn create(
         lamports: u64,
         data: Vec<u8>,
@@ -286,6 +287,19 @@ impl WritableAccount for Account {
             Ok(())
         }
     }
+    fn set_application_fees(&mut self, fees: u64) -> Result<(), InstructionError> {
+        if self.has_application_fees {
+            self.rent_epoch_or_application_fees = fees;
+            Ok(())
+        } else {
+            if self.rent_epoch_or_application_fees != 0 {
+                return Err(InstructionError::CannotSetAppFeesForAccountWithRentEpoch.into());
+            }
+            self.has_application_fees = true;
+            self.rent_epoch_or_application_fees = fees;
+            Ok(())
+        }
+    }
     fn create(
         lamports: u64,
         data: Vec<u8>,
@@ -329,6 +343,19 @@ impl WritableAccount for AccountSharedData {
             Err(InstructionError::CannotSetRentEpochForAccountWithAppFees.into())
         } else {
             self.rent_epoch_or_application_fees = epoch;
+            Ok(())
+        }
+    }
+    fn set_application_fees(&mut self, fees: u64) -> Result<(), InstructionError> {
+        if self.has_application_fees {
+            self.rent_epoch_or_application_fees = fees;
+            Ok(())
+        } else {
+            if self.rent_epoch_or_application_fees != 0 {
+                return Err(InstructionError::CannotSetAppFeesForAccountWithRentEpoch.into());
+            }
+            self.has_application_fees = true;
+            self.rent_epoch_or_application_fees = fees;
             Ok(())
         }
     }
@@ -1131,9 +1158,13 @@ pub mod tests {
                         account1.rent_epoch_or_application_fees += 1;
                     } else if pass == 1 {
                         account_expected.rent_epoch_or_application_fees += 1;
-                        account2.set_rent_epoch(account2.rent_epoch_or_application_fees + 1).unwrap();
+                        account2
+                            .set_rent_epoch(account2.rent_epoch_or_application_fees + 1)
+                            .unwrap();
                     } else if pass == 2 {
-                        account1.set_rent_epoch(account1.rent_epoch_or_application_fees + 1).unwrap();
+                        account1
+                            .set_rent_epoch(account1.rent_epoch_or_application_fees + 1)
+                            .unwrap();
                     } else if pass == 3 {
                         account_expected.rent_epoch_or_application_fees += 1;
                         account2.rent_epoch_or_application_fees += 1;
@@ -1341,7 +1372,7 @@ pub mod tests {
         let deserialized_acc2 =
             bincode::deserialize::<AccountWithApplicationFees>(serialize_acc2.as_slice()).unwrap();
         assert_eq!(account2.lamports, deserialized_acc2.lamports);
-        assert_eq!(deserialized_acc2.data, vec![0, 1, 2, 3]);
+        assert_eq!(deserialized_acc2.data, vec![4, 5, 7, 8]);
         assert_eq!(account2.owner, deserialized_acc2.owner);
         assert_eq!(account2.executable, deserialized_acc2.executable);
         assert_eq!(account2.rent_epoch, deserialized_acc2.rent_epoch);

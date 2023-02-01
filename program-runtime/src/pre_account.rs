@@ -498,7 +498,8 @@ mod tests {
         );
         assert_eq!(
             Change::new(&alice_program_id, &system_program::id())
-                .rent_epoch(0, 1).unwrap()
+                .rent_epoch(0, 1)
+                .unwrap()
                 .verify(),
             Err(InstructionError::RentEpochModified),
             "no one touches rent_epoch"

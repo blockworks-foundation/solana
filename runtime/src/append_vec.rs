@@ -11,7 +11,7 @@ use {
     serde::{Deserialize, Serialize},
     solana_sdk::{
         account::{Account, AccountSharedData, ReadableAccount},
-        clock::{Epoch, Slot},
+        clock::{Slot},
         hash::Hash,
         pubkey::Pubkey,
     },

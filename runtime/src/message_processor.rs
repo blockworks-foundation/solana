@@ -1,3 +1,5 @@
+use solana_program_runtime::invoke_context::ApplicationFeeChanges;
+
 use {
     serde::{Deserialize, Serialize},
     solana_measure::measure::Measure,
@@ -42,8 +44,7 @@ impl ::solana_frozen_abi::abi_example::AbiExample for MessageProcessor {
 pub struct ProcessedMessageInfo {
     /// The change in accounts data len
     pub accounts_data_len_delta: i64,
-    pub application_fees: HashMap<Pubkey, u64>,
-    pub total_rebates_for_application_fees: u64,
+    pub application_fee_changes: ApplicationFeeChanges,
 }
 
 impl MessageProcessor {
@@ -184,8 +185,7 @@ impl MessageProcessor {
         }
         Ok(ProcessedMessageInfo {
             accounts_data_len_delta: invoke_context.get_accounts_data_meter().delta(),
-            application_fees: invoke_context.application_fees,
-            total_rebates_for_application_fees: invoke_context.total_rebates_for_application_fees,
+            application_fee_changes: invoke_context.application_fee_changes,
         })
     }
 }
