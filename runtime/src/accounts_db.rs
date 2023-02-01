@@ -899,6 +899,8 @@ impl<'a> ReadableAccount for LoadedAccount<'a> {
                 *self.owner(),
                 self.executable(),
                 self.rent_epoch(),
+                self.has_application_fees(),
+                self.application_fees(),
             ),
             // clone here to prevent data copy
             LoadedAccount::Cached(cached_account) => cached_account.account.clone(),
@@ -6023,12 +6025,18 @@ impl AccountsDb {
         pubkey: &Pubkey,
         include_slot: IncludeSlotInHash,
     ) -> Hash {
+        let rent_epoch_or_application_fees = if account.has_application_fees() {
+            account.application_fees()
+        } else {
+            account.rent_epoch()
+        };
         Self::hash_account_data(
             slot,
             account.lamports(),
             account.owner(),
             account.executable(),
-            account.rent_epoch(),
+            rent_epoch_or_application_fees,
+            account.has_application_fees(),
             account.data(),
             pubkey,
             include_slot,
@@ -6040,7 +6048,8 @@ impl AccountsDb {
         lamports: u64,
         owner: &Pubkey,
         executable: bool,
-        rent_epoch: Epoch,
+        rent_epoch_or_application_fees: u64,
+        has_application_fees: bool,
         data: &[u8],
         pubkey: &Pubkey,
         include_slot: IncludeSlotInHash,
@@ -6064,11 +6073,17 @@ impl AccountsDb {
             }
         }
 
-        hasher.update(&rent_epoch.to_le_bytes());
+        hasher.update(&rent_epoch_or_application_fees.to_le_bytes());
 
         hasher.update(data);
 
         if executable {
+            hasher.update(&[1u8; 1]);
+        } else {
+            hasher.update(&[0u8; 1]);
+        }
+
+        if has_application_fees {
             hasher.update(&[1u8; 1]);
         } else {
             hasher.update(&[0u8; 1]);

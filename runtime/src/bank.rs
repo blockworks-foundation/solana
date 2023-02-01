@@ -2263,6 +2263,14 @@ impl Bank {
                 .as_ref()
                 .map(|a| a.rent_epoch())
                 .unwrap_or(INITIAL_RENT_EPOCH),
+            old_account
+                .as_ref()
+                .map(|a| a.has_application_fees())
+                .unwrap_or(false),
+            old_account
+                .as_ref()
+                .map(|a| a.application_fees())
+                .unwrap_or(0),
         )
     }
 
@@ -3530,14 +3538,19 @@ impl Bank {
         );
 
         // Add a bogus executable account, which will be loaded and ignored.
-        let (lamports, rent_epoch) = self.inherit_specially_retained_account_fields(&None);
+        let (lamports, rent_epoch, has_application_fees, application_fees) =
+            self.inherit_specially_retained_account_fields(&None);
         let account = AccountSharedData::from(Account {
             lamports,
             owner,
             data: vec![],
             executable: true,
-            has_application_fees: false,
-            rent_epoch_or_application_fees: rent_epoch,
+            has_application_fees: has_application_fees,
+            rent_epoch_or_application_fees: if has_application_fees {
+                application_fees
+            } else {
+                rent_epoch
+            },
         });
         self.store_account_and_update_capitalization(program_id, &account);
     }
@@ -8285,7 +8298,7 @@ pub(crate) mod tests {
                 return_data: None,
                 executed_units: 0,
                 accounts_data_len_delta: 0,
-                application_fees_changes: ApplicationFeesWithRebates::new(),
+                application_fees_changes: ApplicationFeeChanges::new(),
             },
             tx_executor_cache: Rc::new(RefCell::new(TransactionExecutorCache::default())),
         }

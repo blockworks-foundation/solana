@@ -1,3 +1,5 @@
+use solana_sdk::application_fees;
+
 use {
     crate::timings::ExecuteDetailsTimings,
     solana_sdk::{
@@ -118,6 +120,12 @@ impl PreAccount {
             return Err(InstructionError::RentEpochModified);
         }
 
+        // no one modifies application fees (yet)
+        let application_fees_changed = pre.has_application_fees() != post.has_application_fees()
+            || pre.application_fees() != post.application_fees();
+        if application_fees_changed {
+            return Err(InstructionError::CannotChangeApplicationFees);
+        }
         if outermost_call {
             timings.total_account_count = timings.total_account_count.saturating_add(1);
             if owner_changed
@@ -255,6 +263,15 @@ mod tests {
         pub fn rent_epoch(mut self, pre: u64, post: u64) -> Result<Self, InstructionError> {
             self.pre.account.set_rent_epoch(pre)?;
             self.post.set_rent_epoch(post)?;
+            Ok(self)
+        }
+        pub fn change_application_fees(
+            mut self,
+            pre: u64,
+            post: u64,
+        ) -> Result<Self, InstructionError> {
+            self.pre.account.set_application_fees(pre)?;
+            self.post.set_application_fees(post)?;
             Ok(self)
         }
         pub fn verify(&self) -> Result<(), InstructionError> {
@@ -503,6 +520,25 @@ mod tests {
                 .verify(),
             Err(InstructionError::RentEpochModified),
             "no one touches rent_epoch"
+        );
+    }
+
+    #[test]
+    fn test_verify_account_changes_application_fees() {
+        let alice_program_id = solana_sdk::pubkey::new_rand();
+
+        assert_eq!(
+            Change::new(&alice_program_id, &system_program::id()).verify(),
+            Ok(()),
+            "nothing changed!"
+        );
+        assert_eq!(
+            Change::new(&alice_program_id, &system_program::id())
+                .change_application_fees(0, 1)
+                .unwrap()
+                .verify(),
+            Err(InstructionError::CannotChangeApplicationFees),
+            "no one touches application fees"
         );
     }
 

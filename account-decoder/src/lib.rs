@@ -157,6 +157,9 @@ impl UiAccount {
             Pubkey::from_str(&self.owner).ok()?,
             self.executable,
             self.rent_epoch,
+            // TODO APPLICATION_FEES
+            false,
+            0,
         ))
     }
 }

@@ -10,11 +10,7 @@ mod common;
 use {
     crate::common::{assert_error, create_owner_and_dummy_account, setup_test_context},
     solana_sdk::{
-        application_fees::{self, ApplicationFeeStructure},
-        instruction::InstructionError,
-        native_token::LAMPORTS_PER_SOL,
-        pubkey::Pubkey,
-        signature::Keypair,
+        instruction::InstructionError, native_token::LAMPORTS_PER_SOL, signature::Keypair,
         system_instruction, system_transaction,
     },
 };
@@ -29,12 +25,7 @@ async fn test_application_fees_are_applied_without_rebate() {
         let client = &mut context.banks_client;
         let payer = &context.payer;
         let recent_blockhash = context.last_blockhash;
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL,
-            writable_account,
-            owner.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL, writable_account, owner.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -45,12 +36,9 @@ async fn test_application_fees_are_applied_without_rebate() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, LAMPORTS_PER_SOL);
+        let account = client.get_account(writable_account).await.unwrap().unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
     }
 
     // transfer 1 lamport to the writable account / but payer has to pay 1SOL as application fee
@@ -97,12 +85,7 @@ async fn test_application_fees_are_applied_on_multiple_accounts() {
         let client = &mut context.banks_client;
         let payer = &context.payer;
         let recent_blockhash = context.last_blockhash;
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL,
-            writable_account,
-            owner.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL, writable_account, owner.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -113,19 +96,11 @@ async fn test_application_fees_are_applied_on_multiple_accounts() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, LAMPORTS_PER_SOL);
+        let account = client.get_account(writable_account).await.unwrap().unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
 
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL * 2,
-            writable_account2,
-            owner2.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL * 2, writable_account2, owner2.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -136,12 +111,13 @@ async fn test_application_fees_are_applied_on_multiple_accounts() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account2.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, 2 * LAMPORTS_PER_SOL);
+        let account = client
+            .get_account(writable_account2)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, 2 * LAMPORTS_PER_SOL);
     }
 
     // transfer 1 lamport to the writable account / but payer has to pay 1SOL as application fee
@@ -208,12 +184,7 @@ async fn test_application_fees_are_applied_without_rebate_for_failed_transaction
         let client = &mut context.banks_client;
         let payer = &context.payer;
         let recent_blockhash = context.last_blockhash;
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL,
-            writable_account,
-            owner.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL, writable_account, owner.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -224,12 +195,9 @@ async fn test_application_fees_are_applied_without_rebate_for_failed_transaction
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, LAMPORTS_PER_SOL);
+        let account = client.get_account(writable_account).await.unwrap().unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
 
         let payer2 = Keypair::new();
         let transfer_ix = system_transaction::transfer(
@@ -294,12 +262,7 @@ async fn test_application_fees_are_not_applied_if_rebated() {
         let client = &mut context.banks_client;
         let payer = &context.payer;
         let recent_blockhash = context.last_blockhash;
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL,
-            writable_account,
-            owner.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL, writable_account, owner.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -310,12 +273,9 @@ async fn test_application_fees_are_not_applied_if_rebated() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, LAMPORTS_PER_SOL);
+        let account = client.get_account(writable_account).await.unwrap().unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
     }
 
     // transfer 1 lamport to the writable account / but payer has to pay 1SOL as application fee
@@ -326,7 +286,7 @@ async fn test_application_fees_are_not_applied_if_rebated() {
 
         let blockhash = client.get_latest_blockhash().await.unwrap();
         let transfer_ix = system_instruction::transfer(&payer.pubkey(), &writable_account, 1);
-        let rebate_ix = rebate(writable_account, owner.pubkey());
+        let rebate_ix = rebate(writable_account, owner.pubkey(), u64::MAX);
         let transaction = Transaction::new_signed_with_payer(
             &[transfer_ix.clone(), rebate_ix.clone()],
             Some(&payer.pubkey()),
@@ -369,12 +329,7 @@ async fn test_application_fees_are_not_applied_on_single_rebated_account() {
         let client = &mut context.banks_client;
         let payer = &context.payer;
         let recent_blockhash = context.last_blockhash;
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL,
-            writable_account,
-            owner.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL, writable_account, owner.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -385,19 +340,11 @@ async fn test_application_fees_are_not_applied_on_single_rebated_account() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, LAMPORTS_PER_SOL);
+        let account = client.get_account(writable_account).await.unwrap().unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
 
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL * 2,
-            writable_account2,
-            owner2.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL * 2, writable_account2, owner2.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -408,12 +355,13 @@ async fn test_application_fees_are_not_applied_on_single_rebated_account() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account2.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, 2 * LAMPORTS_PER_SOL);
+        let account = client
+            .get_account(writable_account2)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, 2 * LAMPORTS_PER_SOL);
     }
 
     // transfer 1 lamport to the writable account / but payer has to pay 1SOL as application fee
@@ -425,7 +373,7 @@ async fn test_application_fees_are_not_applied_on_single_rebated_account() {
         let blockhash = client.get_latest_blockhash().await.unwrap();
         let transfer_ix1 = system_instruction::transfer(&payer.pubkey(), &writable_account, 1);
         let transfer_ix2 = system_instruction::transfer(&payer.pubkey(), &writable_account2, 1);
-        let rebate_ix = rebate(writable_account, owner.pubkey());
+        let rebate_ix = rebate(writable_account, owner.pubkey(), u64::MAX);
         let transaction = Transaction::new_signed_with_payer(
             &[
                 transfer_ix1.clone(),
@@ -489,12 +437,7 @@ async fn test_application_fees_are_not_applied_if_rebated_owner_same_as_writable
         let recent_blockhash = context.last_blockhash;
         let transfer_ix =
             system_instruction::transfer(&payer.pubkey(), &writable_account, LAMPORTS_PER_SOL);
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL,
-            writable_account,
-            owner.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL, writable_account, owner.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[transfer_ix.clone(), add_ix.clone()],
@@ -505,12 +448,9 @@ async fn test_application_fees_are_not_applied_if_rebated_owner_same_as_writable
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, LAMPORTS_PER_SOL);
+        let account = client.get_account(writable_account).await.unwrap().unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
     }
 
     // transfer 1 lamport to the writable account / but payer has to pay 1SOL as application fee
@@ -521,7 +461,7 @@ async fn test_application_fees_are_not_applied_if_rebated_owner_same_as_writable
 
         let blockhash = client.get_latest_blockhash().await.unwrap();
         let transfer_ix = system_instruction::transfer(&payer.pubkey(), &writable_account, 1);
-        let rebate_ix = rebate(writable_account, owner.pubkey());
+        let rebate_ix = rebate(writable_account, owner.pubkey(), u64::MAX);
         let transaction = Transaction::new_signed_with_payer(
             &[transfer_ix.clone(), rebate_ix.clone()],
             Some(&payer.pubkey()),

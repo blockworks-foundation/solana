@@ -1074,6 +1074,9 @@ impl From<TransactionError> for tx_by_addr::TransactionError {
                             InstructionError::CannotSetRentEpochForAccountWithAppFees => {
                                 tx_by_addr::InstructionErrorType::InvalidAccountData
                             }
+                            InstructionError::CannotChangeApplicationFees => {
+                                tx_by_addr::InstructionErrorType::InvalidAccountData
+                            }
                         } as i32,
                         custom: match instruction_error {
                             InstructionError::Custom(custom) => {

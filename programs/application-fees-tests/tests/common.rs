@@ -37,6 +37,11 @@ pub async fn create_a_dummy_account(context: &mut ProgramTestContext, owner: &Pu
     account.pubkey()
 }
 
+pub async fn advance_slot(context: &mut ProgramTestContext) {
+    let slot = context.banks_client.get_root_slot().await.unwrap();
+    context.warp_to_slot(slot + 2).unwrap();
+}
+
 pub async fn assert_error(res: Result<(), BanksClientError>, expected_err: InstructionError) {
     assert_eq!(
         res.unwrap_err().unwrap(),

@@ -1,5 +1,3 @@
-use solana_program::instruction::InstructionError;
-
 use {
     crate::{
         clock::{Epoch, INITIAL_RENT_EPOCH},
@@ -10,7 +8,10 @@ use {
         ser::{Serialize, Serializer},
         Deserialize,
     },
-    solana_program::{account_info::AccountInfo, debug_account_data::*, sysvar::Sysvar},
+    solana_program::{
+        account_info::AccountInfo, debug_account_data::*, instruction::InstructionError,
+        sysvar::Sysvar,
+    },
     std::{
         cell::{Ref, RefCell},
         fmt, ptr,
@@ -203,6 +204,8 @@ pub trait WritableAccount: ReadableAccount {
         owner: Pubkey,
         executable: bool,
         rent_epoch: Epoch,
+        has_application_fees: bool,
+        application_fees: u64,
     ) -> Self;
 }
 
@@ -221,6 +224,8 @@ pub trait ReadableAccount: Sized {
             *self.owner(),
             self.executable(),
             self.rent_epoch(),
+            self.has_application_fees(),
+            self.application_fees(),
         )
     }
 }
@@ -306,14 +311,20 @@ impl WritableAccount for Account {
         owner: Pubkey,
         executable: bool,
         rent_epoch: Epoch,
+        has_application_fees: bool,
+        application_fees: u64,
     ) -> Self {
         Account {
             lamports,
             data,
             owner,
             executable,
-            has_application_fees: false,
-            rent_epoch_or_application_fees: rent_epoch,
+            has_application_fees: has_application_fees,
+            rent_epoch_or_application_fees: if has_application_fees {
+                application_fees
+            } else {
+                rent_epoch
+            },
         }
     }
 }
@@ -349,6 +360,9 @@ impl WritableAccount for AccountSharedData {
     fn set_application_fees(&mut self, fees: u64) -> Result<(), InstructionError> {
         if self.has_application_fees {
             self.rent_epoch_or_application_fees = fees;
+            if fees == 0 {
+                self.has_application_fees = false;
+            }
             Ok(())
         } else {
             if self.rent_epoch_or_application_fees != 0 {
@@ -365,14 +379,20 @@ impl WritableAccount for AccountSharedData {
         owner: Pubkey,
         executable: bool,
         rent_epoch: Epoch,
+        has_application_fees: bool,
+        application_fees: u64,
     ) -> Self {
         AccountSharedData {
             lamports,
             data: Arc::new(data),
             owner,
             executable,
-            has_application_fees: false,
-            rent_epoch_or_application_fees: rent_epoch,
+            has_application_fees: has_application_fees,
+            rent_epoch_or_application_fees: if has_application_fees {
+                application_fees
+            } else {
+                rent_epoch
+            },
         }
     }
 }
@@ -528,6 +548,8 @@ fn shared_new<T: WritableAccount>(lamports: u64, space: usize, owner: &Pubkey) -
         *owner,
         bool::default(),
         Epoch::default(),
+        false,
+        0,
     )
 }
 
@@ -543,6 +565,8 @@ fn shared_new_rent_epoch<T: WritableAccount>(
         *owner,
         bool::default(),
         rent_epoch,
+        false,
+        0,
     )
 }
 
@@ -566,6 +590,8 @@ fn shared_new_data<T: serde::Serialize, U: WritableAccount>(
         *owner,
         bool::default(),
         Epoch::default(),
+        false,
+        0,
     ))
 }
 fn shared_new_ref_data<T: serde::Serialize, U: WritableAccount>(
@@ -757,8 +783,9 @@ impl AccountSharedData {
     }
 }
 
-pub type InheritableAccountFields = (u64, Epoch);
-pub const DUMMY_INHERITABLE_ACCOUNT_FIELDS: InheritableAccountFields = (1, INITIAL_RENT_EPOCH);
+pub type InheritableAccountFields = (u64, Epoch, bool, u64);
+pub const DUMMY_INHERITABLE_ACCOUNT_FIELDS: InheritableAccountFields =
+    (1, INITIAL_RENT_EPOCH, false, 0);
 
 /// Create an `Account` from a `Sysvar`.
 #[deprecated(
@@ -766,18 +793,22 @@ pub const DUMMY_INHERITABLE_ACCOUNT_FIELDS: InheritableAccountFields = (1, INITI
     note = "Please use `create_account_for_test` instead"
 )]
 pub fn create_account<S: Sysvar>(sysvar: &S, lamports: u64) -> Account {
-    create_account_with_fields(sysvar, (lamports, INITIAL_RENT_EPOCH))
+    create_account_with_fields(sysvar, (lamports, INITIAL_RENT_EPOCH, false, 0))
 }
 
 pub fn create_account_with_fields<S: Sysvar>(
     sysvar: &S,
-    (lamports, rent_epoch): InheritableAccountFields,
+    (lamports, rent_epoch, has_application_fees, application_fees): InheritableAccountFields,
 ) -> Account {
     let data_len = S::size_of().max(bincode::serialized_size(sysvar).unwrap() as usize);
     let mut account = Account::new(lamports, data_len, &solana_program::sysvar::id());
     to_account::<S, Account>(sysvar, &mut account).unwrap();
-    account.rent_epoch_or_application_fees = rent_epoch;
-    account.has_application_fees = false;
+    account.rent_epoch_or_application_fees = if has_application_fees {
+        application_fees
+    } else {
+        rent_epoch
+    };
+    account.has_application_fees = has_application_fees;
     account
 }
 
@@ -793,7 +824,7 @@ pub fn create_account_for_test<S: Sysvar>(sysvar: &S) -> Account {
 pub fn create_account_shared_data<S: Sysvar>(sysvar: &S, lamports: u64) -> AccountSharedData {
     AccountSharedData::from(create_account_with_fields(
         sysvar,
-        (lamports, INITIAL_RENT_EPOCH),
+        (lamports, INITIAL_RENT_EPOCH, false, 0),
     ))
 }
 

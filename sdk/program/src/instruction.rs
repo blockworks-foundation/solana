@@ -270,6 +270,8 @@ pub enum InstructionError {
     CannotSetAppFeesForAccountWithRentEpoch,
     // Note: For any new error added here an equivalent ProgramError and its
     // conversions must also be added
+    #[error("Cannot change application fees")]
+    CannotChangeApplicationFees,
 }
 
 /// A directive for a single invocation of a Solana program.

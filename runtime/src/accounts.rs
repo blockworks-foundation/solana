@@ -344,10 +344,7 @@ impl Accounts {
                         }
 
                         // as we are reverse iterating we validate fee payer after collecting all application fees
-                        if !validated_fee_payer {
-                            if i != 0 {
-                                warn!("Payer index should be 0! {:?}", tx);
-                            }
+                        if !validated_fee_payer && i == 0 {
                             let application_fees_sum =
                                 account_application_fees.iter().map(|x| *x.1).sum::<u64>();
 
@@ -417,7 +414,7 @@ impl Accounts {
 
                 Ok((*key, account))
             })
-            .collect::<Result<Vec<_>>>()?;
+            .rev().collect::<Result<Vec<_>>>()?;
 
         // Appends the account_deps at the end of the accounts,
         // this way they can be accessed in a uniform way.
@@ -2297,6 +2294,8 @@ mod tests {
                 solana_address_lookup_table_program::id(),
                 false,
                 0,
+                false,
+                0,
             )
         };
         accounts.store_slow_uncached(0, &table_key, &table_account);
@@ -3147,7 +3146,7 @@ mod tests {
                 program_indices: vec![],
                 rent: 0,
                 rent_debits: RentDebits::default(),
-                application_fees: ApplicationFees::new_empty(),
+                application_fees: ApplicationFees::new(),
             }),
             None,
         );
@@ -3158,7 +3157,7 @@ mod tests {
                 program_indices: vec![],
                 rent: 0,
                 rent_debits: RentDebits::default(),
-                application_fees: ApplicationFees::new_empty(),
+                application_fees: ApplicationFees::new(),
             }),
             None,
         );
@@ -3637,7 +3636,7 @@ mod tests {
                 program_indices: vec![],
                 rent: 0,
                 rent_debits: RentDebits::default(),
-                application_fees: ApplicationFees::new_empty(),
+                application_fees: ApplicationFees::new(),
             }),
             nonce.clone(),
         );
@@ -3751,7 +3750,7 @@ mod tests {
                 program_indices: vec![],
                 rent: 0,
                 rent_debits: RentDebits::default(),
-                application_fees: ApplicationFees::new_empty(),
+                application_fees: ApplicationFees::new(),
             }),
             nonce.clone(),
         );

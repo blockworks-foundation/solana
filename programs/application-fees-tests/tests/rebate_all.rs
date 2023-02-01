@@ -10,7 +10,7 @@ mod common;
 use {
     crate::common::{create_a_dummy_account, create_owner_and_dummy_account, setup_test_context},
     solana_sdk::{
-        application_fees::{self, ApplicationFeeStructure},
+        application_fees::{self},
         native_token::LAMPORTS_PER_SOL,
         pubkey::Pubkey,
         system_instruction,
@@ -30,12 +30,7 @@ async fn test_application_fees_are_not_applied_on_rebate_all() {
         let client = &mut context.banks_client;
         let payer = &context.payer;
         let recent_blockhash = context.last_blockhash;
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL,
-            writable_account,
-            owner.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL, writable_account, owner.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -45,21 +40,12 @@ async fn test_application_fees_are_not_applied_on_rebate_all() {
         );
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
-
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, LAMPORTS_PER_SOL);
+        let account = client.get_account(writable_account).await.unwrap().unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
 
         // update fees for account 2
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL * 2,
-            writable_account2,
-            owner2.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL * 2, writable_account2, owner2.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -70,20 +56,16 @@ async fn test_application_fees_are_not_applied_on_rebate_all() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account2.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, 2 * LAMPORTS_PER_SOL);
+        let account = client
+            .get_account(writable_account2)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, 2 * LAMPORTS_PER_SOL);
 
         // update fees for account 3
-        let add_ix = update_fees(
-            LAMPORTS_PER_SOL * 3,
-            writable_account3,
-            owner.pubkey(),
-            payer.pubkey(),
-        );
+        let add_ix = update_fees(LAMPORTS_PER_SOL * 3, writable_account3, owner.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -94,12 +76,13 @@ async fn test_application_fees_are_not_applied_on_rebate_all() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let (pda, _bump) =
-            Pubkey::find_program_address(&[&writable_account3.to_bytes()], &application_fees::id());
-        let account = client.get_account(pda).await.unwrap().unwrap();
-        let fees_data: ApplicationFeeStructure =
-            bincode::deserialize::<ApplicationFeeStructure>(account.data.as_slice()).unwrap();
-        assert_eq!(fees_data.fee_lamports, 3 * LAMPORTS_PER_SOL);
+        let account = client
+            .get_account(writable_account3)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(account.has_application_fees, true);
+        assert_eq!(account.rent_epoch_or_application_fees, 3 * LAMPORTS_PER_SOL);
     }
 
     // transfer 1 lamport to the writable accounts / rebate_all for owner (rebates 3+1 SOLs) / but payer has to pay 2SOL as application fee

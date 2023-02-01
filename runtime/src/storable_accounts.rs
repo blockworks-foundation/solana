@@ -333,6 +333,8 @@ pub mod tests {
                             Pubkey::default(),
                             false,
                             0,
+                            false,
+                            0,
                         );
 
                         raw.push((
