@@ -85,6 +85,10 @@ async fn test_application_fees_are_not_applied_on_rebate_all() {
         assert_eq!(account.rent_epoch_or_application_fees, 3 * LAMPORTS_PER_SOL);
     }
 
+    // advance by 2 slots
+    let slot = context.banks_client.get_root_slot().await.unwrap();
+    context.warp_to_slot(slot + 2).unwrap();
+
     // transfer 1 lamport to the writable accounts / rebate_all for owner (rebates 3+1 SOLs) / but payer has to pay 2SOL as application fee
     {
         let client = &mut context.banks_client;

@@ -190,10 +190,16 @@ impl fmt::Display for CliAccount {
             "Executable:",
             &self.keyed_account.account.executable.to_string(),
         )?;
+        let has_application_fees = self.keyed_account.account.has_application_fees;
         writeln_name_value(
             f,
-            "Rent Epoch:",
-            &self.keyed_account.account.rent_epoch.to_string(),
+            "Has Application Fees:",
+            &self.keyed_account.account.has_application_fees.to_string(),
+        )?;
+        writeln_name_value(
+            f,
+            if has_application_fees {"Application Fees:"} else {"Rent Epoch:"},
+            &self.keyed_account.account.rent_epoch_or_application_fees.to_string(),
         )?;
         Ok(())
     }

@@ -1,5 +1,3 @@
-use itertools::Itertools;
-
 use {
     crate::{
         account_overrides::AccountOverrides,
@@ -281,17 +279,14 @@ impl Accounts {
             };
         let mut accumulated_accounts_data_size: usize = 0;
         let mut account_application_fees: HashMap<Pubkey, u64> = HashMap::new();
+        let mut payer_index = 0;
 
         // we reverse the iteration over keys so that we collect all the application fees
         // and then validate fees at the last
         let mut accounts = account_keys
             .iter()
             .enumerate()
-            .collect_vec()
-            .iter()
-            .rev()
             .map(|(i, key)| {
-                let (i, key) = (*i, *key);
                 let (account, loaded_programdata_account_size) = if !message.is_non_loader_key(i) {
                     // Fill in an empty account for the program slots.
                     (AccountSharedData::default(), 0)
@@ -308,7 +303,7 @@ impl Accounts {
                             0,
                         )
                     } else {
-                        let (mut account, rent) = if let Some(account_override) =
+                        let (account, rent) = if let Some(account_override) =
                             account_overrides.and_then(|overrides| overrides.get(key))
                         {
                             (account_override.clone(), 0)
@@ -338,26 +333,21 @@ impl Accounts {
                                 .unwrap_or_default()
                         };
 
+                        if account.rent_epoch_or_application_fees > 0 {
+                            println!("rent_epoch_or_application_fees {}", account.rent_epoch_or_application_fees);
+                        }
+
                         if account.has_application_fees {
                             // if account has application fees insert the fees in the map
                             account_application_fees.insert(*key, account.rent_epoch_or_application_fees);
                         }
 
                         // as we are reverse iterating we validate fee payer after collecting all application fees
-                        if !validated_fee_payer && i == 0 {
-                            let application_fees_sum =
-                                account_application_fees.iter().map(|x| *x.1).sum::<u64>();
-
-                            Self::validate_fee_payer(
-                                key,
-                                &mut account,
-                                i as IndexOfAccount,
-                                error_counters,
-                                rent_collector,
-                                feature_set,
-                                fee.saturating_add(application_fees_sum),
-                            )?;
-
+                        if !validated_fee_payer {
+                            if i != 0 {
+                                warn!("Payer index should be 0! {:?}", tx);
+                            }
+                            payer_index = i;
                             validated_fee_payer = true;
                         }
 
@@ -413,8 +403,24 @@ impl Accounts {
                 )?;
 
                 Ok((*key, account))
-            })
-            .rev().collect::<Result<Vec<_>>>()?;
+            }).collect::<Result<Vec<_>>>()?;
+        
+        if validated_fee_payer {
+            let key_and_account = &mut accounts[payer_index];
+            let application_fees_sum =
+            account_application_fees.iter().map(|x| *x.1).sum::<u64>();
+
+            Self::validate_fee_payer(
+                &key_and_account.0,
+                &mut key_and_account.1,
+                payer_index as IndexOfAccount,
+                error_counters,
+                rent_collector,
+                feature_set,
+                fee.saturating_add(application_fees_sum),
+            )?;
+
+        }
 
         // Appends the account_deps at the end of the accounts,
         // this way they can be accessed in a uniform way.

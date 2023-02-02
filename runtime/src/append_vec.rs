@@ -232,12 +232,17 @@ impl<'a> StoredAccountMeta<'a> {
     }
 
     fn sanitize(&self) -> bool {
-        self.sanitize_executable() && self.sanitize_lamports()
+        self.sanitize_executable() && self.sanitize_lamports() && self.sanitize_has_application_fees()
     }
 
     fn sanitize_executable(&self) -> bool {
         // Sanitize executable to ensure higher 7-bits are cleared correctly.
         self.ref_executable_byte() & !1 == 0
+    }
+
+    fn sanitize_has_application_fees(&self) -> bool {
+        // Sanitize executable to ensure higher 7-bits are cleared correctly.
+        self.ref_has_application_fees_byte() & !1 == 0
     }
 
     fn sanitize_lamports(&self) -> bool {
@@ -252,6 +257,15 @@ impl<'a> StoredAccountMeta<'a> {
         // UNSAFE: Force to interpret mmap-backed bool as u8 to really read the actual memory content
         let executable_byte: &u8 = unsafe { &*(executable_bool as *const bool as *const u8) };
         executable_byte
+    }
+
+    fn ref_has_application_fees_byte(&self) -> &u8 {
+        // Use extra references to avoid value silently clamped to 1 (=true) and 0 (=false)
+        // Yes, this really happens; see test_new_from_file_crafted_executable
+        let has_application_fees: &bool = &self.account_meta.has_application_fees;
+        // UNSAFE: Force to interpret mmap-backed bool as u8 to really read the actual memory content
+        let has_application_fees_byte: &u8 = unsafe { &*(has_application_fees as *const bool as *const u8) };
+        has_application_fees_byte
     }
 }
 

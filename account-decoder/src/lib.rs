@@ -42,7 +42,8 @@ pub struct UiAccount {
     pub data: UiAccountData,
     pub owner: String,
     pub executable: bool,
-    pub rent_epoch: Epoch,
+    pub has_application_fees: bool,
+    pub rent_epoch_or_application_fees: u64,
     pub space: Option<u64>,
 }
 
@@ -129,7 +130,8 @@ impl UiAccount {
             data,
             owner: account.owner().to_string(),
             executable: account.executable(),
-            rent_epoch: account.rent_epoch(),
+            has_application_fees: account.has_application_fees(),
+            rent_epoch_or_application_fees: if account.has_application_fees() { account.application_fees() } else { account.rent_epoch() },
             space: Some(space as u64),
         }
     }
@@ -156,10 +158,10 @@ impl UiAccount {
             data,
             Pubkey::from_str(&self.owner).ok()?,
             self.executable,
-            self.rent_epoch,
+            if self.has_application_fees {0} else {self.rent_epoch_or_application_fees},
             // TODO APPLICATION_FEES
             false,
-            0,
+            if self.has_application_fees {self.rent_epoch_or_application_fees} else {0},
         ))
     }
 }

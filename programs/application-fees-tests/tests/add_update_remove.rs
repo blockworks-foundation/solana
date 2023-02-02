@@ -43,7 +43,7 @@ async fn test_add_update_remove_write_lock_fees() {
     }
 
     advance_slot(&mut context).await;
-    println!("A");
+
     let account = context
         .banks_client
         .get_account(writable_account)
@@ -52,8 +52,7 @@ async fn test_add_update_remove_write_lock_fees() {
         .unwrap();
     assert_eq!(account.has_application_fees, true);
     assert_eq!(account.rent_epoch_or_application_fees, 100);
-    println!("B");
-
+    
     {
         let client = &mut context.banks_client;
         let recent_blockhash = context.last_blockhash;
@@ -69,10 +68,8 @@ async fn test_add_update_remove_write_lock_fees() {
 
         assert_matches!(client.process_transaction(update_transaction).await, Ok(()));
     }
-    println!("C");
     advance_slot(&mut context).await;
-    println!("D");
-
+    
     let account2 = context
         .banks_client
         .get_account(writable_account)
@@ -81,8 +78,7 @@ async fn test_add_update_remove_write_lock_fees() {
         .unwrap();
     assert_eq!(account2.rent_epoch_or_application_fees, 10000);
     assert_eq!(account2.has_application_fees, true);
-    println!("E");
-
+    
     {
         let client = &mut context.banks_client;
         let recent_blockhash = context.last_blockhash;
@@ -98,11 +94,9 @@ async fn test_add_update_remove_write_lock_fees() {
 
         assert_matches!(client.process_transaction(remove_transaction).await, Ok(()));
     }
-    println!("F");
-
+    
     advance_slot(&mut context).await;
-    println!("G");
-
+    
     let account3 = context
         .banks_client
         .get_account(writable_account)
