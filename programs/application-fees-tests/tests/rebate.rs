@@ -1,18 +1,16 @@
-use solana_application_fees_program::instruction::{rebate, update_fees};
-
-use {
-    assert_matches::assert_matches,
-    solana_program_test::tokio,
-    solana_sdk::{signature::Signer, transaction::Transaction},
-};
-
 mod common;
 use {
-    crate::common::{assert_error, create_owner_and_dummy_account, setup_test_context},
+    crate::common::{
+        advance_slot, assert_error, create_owner_and_dummy_account, setup_test_context,
+    },
+    assert_matches::assert_matches,
+    solana_application_fees_program::instruction::{rebate, update_fees},
+    solana_program_test::tokio,
     solana_sdk::{
         instruction::InstructionError, native_token::LAMPORTS_PER_SOL, signature::Keypair,
         system_instruction, system_transaction,
     },
+    solana_sdk::{signature::Signer, transaction::Transaction},
 };
 
 #[tokio::test]
@@ -35,11 +33,26 @@ async fn test_application_fees_are_applied_without_rebate() {
         );
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
-
         let account = client.get_account(writable_account).await.unwrap().unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
+        assert_eq!(account.has_application_fees, false);
+        assert_eq!(account.rent_epoch_or_application_fees, 0);
     }
+    advance_slot(&mut context).await;
+    let account = context
+        .banks_client
+        .get_account(writable_account)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
+
+    // check if the application fees are correcly dispatched to the correct account
+    let balance_writable_account_before = context
+        .banks_client
+        .get_balance(writable_account)
+        .await
+        .unwrap();
 
     // transfer 1 lamport to the writable account / but payer has to pay 1SOL as application fee
     {
@@ -55,14 +68,7 @@ async fn test_application_fees_are_applied_without_rebate() {
         assert!(balance_before_transaction - balance_after_transaction > LAMPORTS_PER_SOL);
     }
 
-    // check if the application fees are correcly dispatched to the correct account
-    let balance_writable_account_before = context
-        .banks_client
-        .get_balance(writable_account)
-        .await
-        .unwrap();
-    let slot = context.banks_client.get_root_slot().await.unwrap();
-    context.warp_to_slot(slot + 2).unwrap();
+    advance_slot(&mut context).await;
     let balance_writable_account_after = context
         .banks_client
         .get_balance(writable_account)
@@ -70,7 +76,7 @@ async fn test_application_fees_are_applied_without_rebate() {
         .unwrap();
     assert_eq!(
         balance_writable_account_after - balance_writable_account_before,
-        LAMPORTS_PER_SOL
+        LAMPORTS_PER_SOL + 1
     );
 }
 
@@ -96,10 +102,6 @@ async fn test_application_fees_are_applied_on_multiple_accounts() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let account = client.get_account(writable_account).await.unwrap().unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
-
         let add_ix = update_fees(LAMPORTS_PER_SOL * 2, writable_account2, owner2.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
@@ -110,15 +112,46 @@ async fn test_application_fees_are_applied_on_multiple_accounts() {
         );
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
-
-        let account = client
-            .get_account(writable_account2)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, 2 * LAMPORTS_PER_SOL);
     }
+    advance_slot(&mut context).await;
+
+    let account = context
+        .banks_client
+        .get_account(writable_account)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
+
+    let account = context
+        .banks_client
+        .get_account(writable_account2)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, 2 * LAMPORTS_PER_SOL);
+
+    let account = context
+        .banks_client
+        .get_account(writable_account2)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, 2 * LAMPORTS_PER_SOL);
+
+    let balance_writable_account_before = context
+        .banks_client
+        .get_balance(writable_account)
+        .await
+        .unwrap();
+    let balance_writable_account_2_before = context
+        .banks_client
+        .get_balance(writable_account2)
+        .await
+        .unwrap();
 
     // transfer 1 lamport to the writable account / but payer has to pay 1SOL as application fee
     {
@@ -142,18 +175,7 @@ async fn test_application_fees_are_applied_on_multiple_accounts() {
     }
 
     // check if the application fees are correcly dispatched to the correct account
-    let balance_writable_account_before = context
-        .banks_client
-        .get_balance(writable_account)
-        .await
-        .unwrap();
-    let balance_writable_account_2_before = context
-        .banks_client
-        .get_balance(writable_account2)
-        .await
-        .unwrap();
-    let slot = context.banks_client.get_root_slot().await.unwrap();
-    context.warp_to_slot(slot + 2).unwrap();
+    advance_slot(&mut context).await;
     let balance_writable_account_after = context
         .banks_client
         .get_balance(writable_account)
@@ -166,11 +188,11 @@ async fn test_application_fees_are_applied_on_multiple_accounts() {
         .unwrap();
     assert_eq!(
         balance_writable_account_after - balance_writable_account_before,
-        1 * LAMPORTS_PER_SOL
+        1 * LAMPORTS_PER_SOL + 1
     );
     assert_eq!(
         balance_writable_account_2_after - balance_writable_account_2_before,
-        2 * LAMPORTS_PER_SOL
+        2 * LAMPORTS_PER_SOL + 1
     );
 }
 
@@ -195,10 +217,6 @@ async fn test_application_fees_are_applied_without_rebate_for_failed_transaction
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let account = client.get_account(writable_account).await.unwrap().unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
-
         let payer2 = Keypair::new();
         let transfer_ix = system_transaction::transfer(
             payer,
@@ -209,6 +227,16 @@ async fn test_application_fees_are_applied_without_rebate_for_failed_transaction
         assert_matches!(client.process_transaction(transfer_ix).await, Ok(()));
         payer2
     };
+
+    advance_slot(&mut context).await;
+    let account = context
+        .banks_client
+        .get_account(writable_account)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
 
     // transfer 11 SOLs to the writable account which the payer clearly does not have / but payer has to pay 1SOL as application fee
     {
@@ -239,8 +267,9 @@ async fn test_application_fees_are_applied_without_rebate_for_failed_transaction
         .get_balance(writable_account)
         .await
         .unwrap();
-    let slot = context.banks_client.get_root_slot().await.unwrap();
-    context.warp_to_slot(slot + 2).unwrap();
+
+    advance_slot(&mut context).await;
+
     let balance_writable_account_after = context
         .banks_client
         .get_balance(writable_account)
@@ -272,11 +301,17 @@ async fn test_application_fees_are_not_applied_if_rebated() {
         );
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
-
-        let account = client.get_account(writable_account).await.unwrap().unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
     }
+    advance_slot(&mut context).await;
+
+    let account = context
+        .banks_client
+        .get_account(writable_account)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
 
     // transfer 1 lamport to the writable account / but payer has to pay 1SOL as application fee
     {
@@ -305,8 +340,9 @@ async fn test_application_fees_are_not_applied_if_rebated() {
         .get_balance(writable_account)
         .await
         .unwrap();
-    let slot = context.banks_client.get_root_slot().await.unwrap();
-    context.warp_to_slot(slot + 2).unwrap();
+
+    advance_slot(&mut context).await;
+
     let balance_writable_account_after = context
         .banks_client
         .get_balance(writable_account)
@@ -340,10 +376,6 @@ async fn test_application_fees_are_not_applied_on_single_rebated_account() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let account = client.get_account(writable_account).await.unwrap().unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
-
         let add_ix = update_fees(LAMPORTS_PER_SOL * 2, writable_account2, owner2.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
@@ -354,15 +386,26 @@ async fn test_application_fees_are_not_applied_on_single_rebated_account() {
         );
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
-
-        let account = client
-            .get_account(writable_account2)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, 2 * LAMPORTS_PER_SOL);
     }
+
+    advance_slot(&mut context).await;
+    let account = context
+        .banks_client
+        .get_account(writable_account)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
+
+    let account = context
+        .banks_client
+        .get_account(writable_account2)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, 2 * LAMPORTS_PER_SOL);
 
     // transfer 1 lamport to the writable account / but payer has to pay 1SOL as application fee
     {
@@ -402,8 +445,9 @@ async fn test_application_fees_are_not_applied_on_single_rebated_account() {
         .get_balance(writable_account2)
         .await
         .unwrap();
-    let slot = context.banks_client.get_root_slot().await.unwrap();
-    context.warp_to_slot(slot + 2).unwrap();
+
+    advance_slot(&mut context).await;
+
     let balance_writable_account_after = context
         .banks_client
         .get_balance(writable_account)
@@ -447,11 +491,17 @@ async fn test_application_fees_are_not_applied_if_rebated_owner_same_as_writable
         );
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
-
-        let account = client.get_account(writable_account).await.unwrap().unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
     }
+    advance_slot(&mut context).await;
+
+    let account = context
+        .banks_client
+        .get_account(writable_account)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
 
     // transfer 1 lamport to the writable account / but payer has to pay 1SOL as application fee
     {
@@ -480,8 +530,8 @@ async fn test_application_fees_are_not_applied_if_rebated_owner_same_as_writable
         .get_balance(writable_account)
         .await
         .unwrap();
-    let slot = context.banks_client.get_root_slot().await.unwrap();
-    context.warp_to_slot(slot + 2).unwrap();
+    advance_slot(&mut context).await;
+
     let balance_writable_account_after = context
         .banks_client
         .get_balance(writable_account)

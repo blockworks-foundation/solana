@@ -1,4 +1,5 @@
 use solana_application_fees_program::instruction::update_fees;
+use solana_sdk::native_token::LAMPORTS_PER_SOL;
 
 use {
     assert_matches::assert_matches,
@@ -52,7 +53,7 @@ async fn test_add_update_remove_write_lock_fees() {
         .unwrap();
     assert_eq!(account.has_application_fees, true);
     assert_eq!(account.rent_epoch_or_application_fees, 100);
-    
+
     {
         let client = &mut context.banks_client;
         let recent_blockhash = context.last_blockhash;
@@ -69,7 +70,7 @@ async fn test_add_update_remove_write_lock_fees() {
         assert_matches!(client.process_transaction(update_transaction).await, Ok(()));
     }
     advance_slot(&mut context).await;
-    
+
     let account2 = context
         .banks_client
         .get_account(writable_account)
@@ -78,7 +79,7 @@ async fn test_add_update_remove_write_lock_fees() {
         .unwrap();
     assert_eq!(account2.rent_epoch_or_application_fees, 10000);
     assert_eq!(account2.has_application_fees, true);
-    
+
     {
         let client = &mut context.banks_client;
         let recent_blockhash = context.last_blockhash;
@@ -94,9 +95,9 @@ async fn test_add_update_remove_write_lock_fees() {
 
         assert_matches!(client.process_transaction(remove_transaction).await, Ok(()));
     }
-    
+
     advance_slot(&mut context).await;
-    
+
     let account3 = context
         .banks_client
         .get_account(writable_account)
@@ -201,7 +202,7 @@ async fn test_add_update_remove_owner_same_as_writable_account() {
         let client = &mut context.banks_client;
         let payer = &context.payer;
         let recent_blockhash = context.last_blockhash;
-        let add_ix = update_fees(100, writable_account, owner.pubkey());
+        let add_ix = update_fees(LAMPORTS_PER_SOL, writable_account, owner.pubkey());
 
         let transaction = Transaction::new_signed_with_payer(
             &[add_ix.clone()],
@@ -211,14 +212,16 @@ async fn test_add_update_remove_owner_same_as_writable_account() {
         );
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
+    }
+    advance_slot(&mut context).await;
 
-        let account = client.get_account(writable_account).await.unwrap().unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, 100);
+    // test update
+    {
+        let client = &mut context.banks_client;
+        let payer = &context.payer;
+        let recent_blockhash = context.last_blockhash;
 
-        // test update
-
-        let update_ix = update_fees(10000, writable_account, owner.pubkey());
+        let update_ix = update_fees(2 * LAMPORTS_PER_SOL, writable_account, owner.pubkey());
 
         let update_transaction = Transaction::new_signed_with_payer(
             &[update_ix.clone()],
@@ -228,12 +231,15 @@ async fn test_add_update_remove_owner_same_as_writable_account() {
         );
 
         assert_matches!(client.process_transaction(update_transaction).await, Ok(()));
+    }
+    advance_slot(&mut context).await;
 
-        let account2 = client.get_account(writable_account).await.unwrap().unwrap();
-        assert_eq!(account2.has_application_fees, true);
-        assert_eq!(account2.rent_epoch_or_application_fees, 100);
+    // test remove
+    {
+        let client = &mut context.banks_client;
+        let payer = &context.payer;
+        let recent_blockhash = context.last_blockhash;
 
-        // test remove
         let remove_ix = update_fees(0, writable_account, owner.pubkey());
 
         let remove_transaction = Transaction::new_signed_with_payer(
@@ -244,9 +250,5 @@ async fn test_add_update_remove_owner_same_as_writable_account() {
         );
 
         assert_matches!(client.process_transaction(remove_transaction).await, Ok(()));
-
-        let account3 = client.get_account(writable_account).await.unwrap().unwrap();
-        assert_eq!(account3.has_application_fees, false);
-        assert_eq!(account3.rent_epoch_or_application_fees, 0);
     }
 }

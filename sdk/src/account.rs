@@ -295,6 +295,9 @@ impl WritableAccount for Account {
     fn set_application_fees(&mut self, fees: u64) -> Result<(), InstructionError> {
         if self.has_application_fees {
             self.rent_epoch_or_application_fees = fees;
+            if fees == 0 {
+                self.has_application_fees = false;
+            }
             Ok(())
         } else {
             if self.rent_epoch_or_application_fees != 0 {

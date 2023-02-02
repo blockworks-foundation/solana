@@ -333,10 +333,6 @@ impl Accounts {
                                 .unwrap_or_default()
                         };
 
-                        if account.rent_epoch_or_application_fees > 0 {
-                            println!("rent_epoch_or_application_fees {}", account.rent_epoch_or_application_fees);
-                        }
-
                         if account.has_application_fees {
                             // if account has application fees insert the fees in the map
                             account_application_fees.insert(*key, account.rent_epoch_or_application_fees);
@@ -404,11 +400,10 @@ impl Accounts {
 
                 Ok((*key, account))
             }).collect::<Result<Vec<_>>>()?;
-        
+
         if validated_fee_payer {
             let key_and_account = &mut accounts[payer_index];
-            let application_fees_sum =
-            account_application_fees.iter().map(|x| *x.1).sum::<u64>();
+            let application_fees_sum = account_application_fees.iter().map(|x| *x.1).sum::<u64>();
 
             Self::validate_fee_payer(
                 &key_and_account.0,
@@ -419,7 +414,6 @@ impl Accounts {
                 feature_set,
                 fee.saturating_add(application_fees_sum),
             )?;
-
         }
 
         // Appends the account_deps at the end of the accounts,

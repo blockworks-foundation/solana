@@ -232,7 +232,9 @@ impl<'a> StoredAccountMeta<'a> {
     }
 
     fn sanitize(&self) -> bool {
-        self.sanitize_executable() && self.sanitize_lamports() && self.sanitize_has_application_fees()
+        self.sanitize_executable()
+            && self.sanitize_lamports()
+            && self.sanitize_has_application_fees()
     }
 
     fn sanitize_executable(&self) -> bool {
@@ -264,7 +266,8 @@ impl<'a> StoredAccountMeta<'a> {
         // Yes, this really happens; see test_new_from_file_crafted_executable
         let has_application_fees: &bool = &self.account_meta.has_application_fees;
         // UNSAFE: Force to interpret mmap-backed bool as u8 to really read the actual memory content
-        let has_application_fees_byte: &u8 = unsafe { &*(has_application_fees as *const bool as *const u8) };
+        let has_application_fees_byte: &u8 =
+            unsafe { &*(has_application_fees as *const bool as *const u8) };
         has_application_fees_byte
     }
 }

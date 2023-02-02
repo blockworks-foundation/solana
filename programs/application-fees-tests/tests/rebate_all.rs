@@ -8,13 +8,10 @@ use {
 
 mod common;
 use {
-    crate::common::{create_a_dummy_account, create_owner_and_dummy_account, setup_test_context},
-    solana_sdk::{
-        application_fees::{self},
-        native_token::LAMPORTS_PER_SOL,
-        pubkey::Pubkey,
-        system_instruction,
+    crate::common::{
+        advance_slot, create_a_dummy_account, create_owner_and_dummy_account, setup_test_context,
     },
+    solana_sdk::{native_token::LAMPORTS_PER_SOL, system_instruction},
 };
 
 #[tokio::test]
@@ -40,9 +37,6 @@ async fn test_application_fees_are_not_applied_on_rebate_all() {
         );
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
-        let account = client.get_account(writable_account).await.unwrap().unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
 
         // update fees for account 2
         let add_ix = update_fees(LAMPORTS_PER_SOL * 2, writable_account2, owner2.pubkey());
@@ -56,14 +50,6 @@ async fn test_application_fees_are_not_applied_on_rebate_all() {
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
 
-        let account = client
-            .get_account(writable_account2)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, 2 * LAMPORTS_PER_SOL);
-
         // update fees for account 3
         let add_ix = update_fees(LAMPORTS_PER_SOL * 3, writable_account3, owner.pubkey());
 
@@ -75,19 +61,53 @@ async fn test_application_fees_are_not_applied_on_rebate_all() {
         );
 
         assert_matches!(client.process_transaction(transaction).await, Ok(()));
-
-        let account = client
-            .get_account(writable_account3)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(account.has_application_fees, true);
-        assert_eq!(account.rent_epoch_or_application_fees, 3 * LAMPORTS_PER_SOL);
     }
 
-    // advance by 2 slots
-    let slot = context.banks_client.get_root_slot().await.unwrap();
-    context.warp_to_slot(slot + 2).unwrap();
+    advance_slot(&mut context).await;
+
+    let account = context
+        .banks_client
+        .get_account(writable_account)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, LAMPORTS_PER_SOL);
+
+    let account = context
+        .banks_client
+        .get_account(writable_account2)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, 2 * LAMPORTS_PER_SOL);
+
+    let account = context
+        .banks_client
+        .get_account(writable_account3)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.has_application_fees, true);
+    assert_eq!(account.rent_epoch_or_application_fees, 3 * LAMPORTS_PER_SOL);
+
+    // check if the application fees are correcly dispatched to the correct account
+    let balance_writable_account_before = context
+        .banks_client
+        .get_balance(writable_account)
+        .await
+        .unwrap();
+    let balance_writable_account_2_before = context
+        .banks_client
+        .get_balance(writable_account2)
+        .await
+        .unwrap();
+    let balance_writable_account_3_before = context
+        .banks_client
+        .get_balance(writable_account3)
+        .await
+        .unwrap();
 
     // transfer 1 lamport to the writable accounts / rebate_all for owner (rebates 3+1 SOLs) / but payer has to pay 2SOL as application fee
     {
@@ -117,24 +137,7 @@ async fn test_application_fees_are_not_applied_on_rebate_all() {
         assert!(balance_before_transaction - balance_after_transaction < 3 * LAMPORTS_PER_SOL);
     }
 
-    // check if the application fees are correcly dispatched to the correct account
-    let balance_writable_account_before = context
-        .banks_client
-        .get_balance(writable_account)
-        .await
-        .unwrap();
-    let balance_writable_account_2_before = context
-        .banks_client
-        .get_balance(writable_account2)
-        .await
-        .unwrap();
-    let balance_writable_account_3_before = context
-        .banks_client
-        .get_balance(writable_account3)
-        .await
-        .unwrap();
-    let slot = context.banks_client.get_root_slot().await.unwrap();
-    context.warp_to_slot(slot + 2).unwrap();
+    advance_slot(&mut context).await;
     let balance_writable_account_after = context
         .banks_client
         .get_balance(writable_account)
@@ -152,14 +155,14 @@ async fn test_application_fees_are_not_applied_on_rebate_all() {
         .unwrap();
     assert_eq!(
         balance_writable_account_after - balance_writable_account_before,
-        0
+        1
     );
     assert_eq!(
         balance_writable_account_2_after - balance_writable_account_2_before,
-        2 * LAMPORTS_PER_SOL
+        2 * LAMPORTS_PER_SOL + 1
     );
     assert_eq!(
         balance_writable_account_3_after - balance_writable_account_3_before,
-        0
+        1
     );
 }

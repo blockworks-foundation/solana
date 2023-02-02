@@ -20,7 +20,6 @@ use {
     crate::parse_account_data::{parse_account_data, AccountAdditionalData, ParsedAccount},
     solana_sdk::{
         account::{ReadableAccount, WritableAccount},
-        clock::Epoch,
         fee_calculator::FeeCalculator,
         pubkey::Pubkey,
     },
@@ -131,7 +130,11 @@ impl UiAccount {
             owner: account.owner().to_string(),
             executable: account.executable(),
             has_application_fees: account.has_application_fees(),
-            rent_epoch_or_application_fees: if account.has_application_fees() { account.application_fees() } else { account.rent_epoch() },
+            rent_epoch_or_application_fees: if account.has_application_fees() {
+                account.application_fees()
+            } else {
+                account.rent_epoch()
+            },
             space: Some(space as u64),
         }
     }
@@ -158,10 +161,18 @@ impl UiAccount {
             data,
             Pubkey::from_str(&self.owner).ok()?,
             self.executable,
-            if self.has_application_fees {0} else {self.rent_epoch_or_application_fees},
+            if self.has_application_fees {
+                0
+            } else {
+                self.rent_epoch_or_application_fees
+            },
             // TODO APPLICATION_FEES
-            false,
-            if self.has_application_fees {self.rent_epoch_or_application_fees} else {0},
+            self.has_application_fees,
+            if self.has_application_fees {
+                self.rent_epoch_or_application_fees
+            } else {
+                0
+            },
         ))
     }
 }

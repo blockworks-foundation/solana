@@ -118,12 +118,12 @@ impl PreAccount {
             return Err(InstructionError::RentEpochModified);
         }
 
-        // // no one modifies application fees (yet)
-        // let application_fees_changed = pre.has_application_fees() != post.has_application_fees()
-        //     || pre.application_fees() != post.application_fees();
-        // if application_fees_changed {
-        //     return Err(InstructionError::CannotChangeApplicationFees);
-        // }
+        // no one modifies application fees (yet)
+        let application_fees_changed = pre.has_application_fees() != post.has_application_fees()
+            || pre.application_fees() != post.application_fees();
+        if application_fees_changed {
+            return Err(InstructionError::CannotChangeApplicationFees);
+        }
 
         if outermost_call {
             timings.total_account_count = timings.total_account_count.saturating_add(1);

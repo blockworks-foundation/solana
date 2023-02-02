@@ -46,7 +46,7 @@ impl Processor {
             return Err(InstructionError::MissingRequiredSignature);
         }
 
-        let mut writable_account = {
+        let writable_account = {
             let index_in_transaction =
                 instruction_context.get_index_of_instruction_account_in_transaction(1)?;
             let writable_account_key =
@@ -83,7 +83,6 @@ impl Processor {
             writable_account_key.to_string(),
             fees
         );
-        writable_account.set_application_fees(fees)?;
         drop(writable_account);
 
         invoke_context
@@ -132,7 +131,7 @@ impl Processor {
             }
         };
         drop(writable_account);
-        // do rebate
+        // do rebate / update the application fees and add the rest into rebate
         let lamports_rebated = {
             let lamports = invoke_context
                 .application_fee_changes
@@ -140,6 +139,7 @@ impl Processor {
                 .get_mut(&writable_account_key);
             if let Some(lamports) = lamports {
                 let lamports_rebated = min(*lamports, rebate_fees);
+                // update app fees
                 *lamports = lamports.saturating_sub(lamports_rebated);
                 lamports_rebated
             } else {
@@ -181,17 +181,30 @@ impl Processor {
             if let Ok(borrowed_account) = borrowed_account {
                 let account_owner = borrowed_account.owner();
                 if owner_key.eq(account_owner) && borrowed_account.has_application_fees() {
-                    let lamports_rebated = invoke_context.application_fee_changes.application_fees.get(key);
+                    let lamports_rebated = invoke_context
+                        .application_fee_changes
+                        .application_fees
+                        .get_mut(key);
+                    // we have to do this because we have already borrowed invoke context as a mut
+                    let mut rebated_amount = None;
                     if let Some(lamports_rebated) = lamports_rebated {
+                        rebated_amount = Some(*lamports_rebated);
+                        // add these in rabates map
                         invoke_context
                             .application_fee_changes
                             .rebated
                             .insert(*key, *lamports_rebated);
+                        // update the application fee charged to 0
+                        *lamports_rebated = 0;
+                    }
+                    
+                    // log message
+                    if let Some(rebated_amount) = rebated_amount {
                         ic_msg!(
                             invoke_context,
                             "application fees rebated for writable account {} lamports {}",
                             key.to_string(),
-                            lamports_rebated,
+                            rebated_amount,
                         );
                     }
                 }
