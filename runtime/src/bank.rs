@@ -3272,12 +3272,12 @@ impl Bank {
                             }
                         },
                         ApplicationFeesOperation::Updated => {
-                            if let Err(err) = self.update_application_fees(pubkey, amount) {
-                                error!(
-                                    "Failed to update application fees for {} to {} error {}",
-                                    pubkey, amount, err
-                                );
-                            }
+                            // if let Err(err) = self.update_application_fees(pubkey, amount) {
+                            //     error!(
+                            //         "Failed to update application fees for {} to {} error {}",
+                            //         pubkey, amount, err
+                            //     );
+                            // }
                         }
                     }
                 });

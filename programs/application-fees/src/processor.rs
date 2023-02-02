@@ -46,7 +46,7 @@ impl Processor {
             return Err(InstructionError::MissingRequiredSignature);
         }
 
-        let writable_account = {
+        let mut writable_account = {
             let index_in_transaction =
                 instruction_context.get_index_of_instruction_account_in_transaction(1)?;
             let writable_account_key =
@@ -83,6 +83,7 @@ impl Processor {
             writable_account_key.to_string(),
             fees
         );
+        writable_account.set_application_fees(fees)?;
         drop(writable_account);
 
         invoke_context

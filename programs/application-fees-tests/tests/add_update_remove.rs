@@ -36,9 +36,10 @@ async fn test_add_update_remove_write_lock_fees() {
             recent_blockhash,
         );
 
-        assert_matches!(client.process_transaction(transaction).await, Ok(()));
         let account = client.get_account(writable_account).await.unwrap().unwrap();
         assert_eq!(account.has_application_fees, false);
+
+        assert_matches!(client.process_transaction(transaction).await, Ok(()));
     }
 
     advance_slot(&mut context).await;
