@@ -166,6 +166,14 @@ impl PreAccount {
         self.account.executable()
     }
 
+    pub fn has_application_fees(&self) -> bool {
+        self.account.has_application_fees()
+    }
+
+    pub fn application_fees(&self) -> u64 {
+        self.account.application_fees()
+    }
+
     pub fn is_zeroed(buf: &[u8]) -> bool {
         const ZEROS_LEN: usize = 1024;
         static ZEROS: [u8; ZEROS_LEN] = [0; ZEROS_LEN];

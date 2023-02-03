@@ -396,6 +396,24 @@ impl<'a> InvokeContext<'a> {
                 .checked_add(u128::from(account.lamports()))
                 .ok_or(InstructionError::UnbalancedInstruction)?;
 
+            // additional check on application fees if they are balanced / ie if account has application fees then they should be either in application fees or in rebates
+            if pre_account.has_application_fees() {
+                let key = pre_account.key();
+                let app_fees = self
+                    .application_fee_changes
+                    .application_fees
+                    .get(key)
+                    .map_or(0, |x| *x);
+                let rebates = self
+                    .application_fee_changes
+                    .rebated
+                    .get(key)
+                    .map_or(0, |x| *x);
+                if pre_account.application_fees() != app_fees + rebates {
+                    return Err(InstructionError::UnbalancedInstruction);
+                }
+            }
+
             let pre_data_len = pre_account.data().len() as i64;
             let post_data_len = account.data().len() as i64;
             let data_len_delta = post_data_len.saturating_sub(pre_data_len);

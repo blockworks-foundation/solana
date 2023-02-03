@@ -41,9 +41,9 @@ pub struct UiAccount {
     pub data: UiAccountData,
     pub owner: String,
     pub executable: bool,
-    pub has_application_fees: bool,
-    pub rent_epoch_or_application_fees: u64,
+    pub rent_epoch: u64,
     pub space: Option<u64>,
+    pub application_fees: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,13 +129,13 @@ impl UiAccount {
             data,
             owner: account.owner().to_string(),
             executable: account.executable(),
-            has_application_fees: account.has_application_fees(),
-            rent_epoch_or_application_fees: if account.has_application_fees() {
-                account.application_fees()
-            } else {
-                account.rent_epoch()
-            },
+            rent_epoch: account.rent_epoch(),
             space: Some(space as u64),
+            application_fees: if account.has_application_fees() {
+                Some(account.application_fees())
+            } else {
+                None
+            },
         }
     }
 
@@ -156,23 +156,16 @@ impl UiAccount {
                 UiAccountEncoding::Binary | UiAccountEncoding::JsonParsed => None,
             },
         }?;
+        let has_app_fees: bool = self.application_fees.is_some();
         Some(T::create(
             self.lamports,
             data,
             Pubkey::from_str(&self.owner).ok()?,
             self.executable,
-            if self.has_application_fees {
-                0
-            } else {
-                self.rent_epoch_or_application_fees
-            },
+            if has_app_fees { 0 } else { self.rent_epoch },
             // TODO APPLICATION_FEES
-            self.has_application_fees,
-            if self.has_application_fees {
-                self.rent_epoch_or_application_fees
-            } else {
-                0
-            },
+            has_app_fees,
+            self.application_fees.map_or(0, |x| x),
         ))
     }
 }

@@ -1,4 +1,6 @@
 #![allow(clippy::to_string_in_format_args)]
+
+use solana_sdk::application_fees;
 use {
     crate::{
         cli_version::CliVersion,
@@ -190,25 +192,14 @@ impl fmt::Display for CliAccount {
             "Executable:",
             &self.keyed_account.account.executable.to_string(),
         )?;
-        let has_application_fees = self.keyed_account.account.has_application_fees;
         writeln_name_value(
             f,
-            "Has Application Fees:",
-            &self.keyed_account.account.has_application_fees.to_string(),
+            "rent_epoch",
+            &self.keyed_account.account.rent_epoch.to_string(),
         )?;
-        writeln_name_value(
-            f,
-            if has_application_fees {
-                "Application Fees:"
-            } else {
-                "Rent Epoch:"
-            },
-            &self
-                .keyed_account
-                .account
-                .rent_epoch_or_application_fees
-                .to_string(),
-        )?;
+        if let Some(application_fees) = self.keyed_account.account.application_fees {
+            writeln_name_value(f, "application_fees", &application_fees.to_string())?;
+        }
         Ok(())
     }
 }

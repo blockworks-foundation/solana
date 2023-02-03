@@ -197,7 +197,7 @@ impl Processor {
                         // update the application fee charged to 0
                         *lamports_rebated = 0;
                     }
-                    
+
                     // log message
                     if let Some(rebated_amount) = rebated_amount {
                         ic_msg!(

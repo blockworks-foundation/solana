@@ -4948,6 +4948,10 @@ impl Bank {
         for (pubkey, updated_fees) in application_fees_updated {
             match result.entry((*pubkey, ApplicationFeesOperation::Updated)) {
                 dashmap::mapref::entry::Entry::Occupied(x) => {
+                    // continue if the fees are the same
+                    if x.get().eq(updated_fees) {
+                        continue;
+                    }
                     // should not process update application fees for an account multiple times a slot
                     warn!("Updated application fees for {} multiple times in same slot, so the fees won't be updated", pubkey);
                     x.remove_entry();
@@ -5035,7 +5039,11 @@ impl Bank {
                 if let Some(updated_application_fees) = updated_application_fees {
                     for (pubkey, updated_fees) in updated_application_fees.iter() {
                         match application_fees_to_update.get(pubkey) {
-                            Some(_) => {
+                            Some(value) => {
+                                // ignore if the value is the same
+                                if updated_fees.eq(value) {
+                                    continue;
+                                }
                                 // remove the application fees as we do not multiple updates of application fees in same slot
                                 application_fees_to_update.remove(pubkey);
                                 self.application_fees_collected
