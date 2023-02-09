@@ -1,5 +1,4 @@
 //! The `shred_fetch_stage` pulls shreds from UDP sockets and sends it to a channel.
-
 use {
     crate::{
         cluster_nodes::check_feature_activation, packet_hasher::PacketHasher,
@@ -8,7 +7,7 @@ use {
     crossbeam_channel::{unbounded, Sender},
     lru::LruCache,
     solana_gossip::cluster_info::ClusterInfo,
-    solana_ledger::shred::{should_discard_shred, ShredFetchStats},
+    solana_ledger::shred::{should_discard_shred, ShredFetchStats, layout::get_shred_id},
     solana_perf::packet::{Packet, PacketBatch, PacketBatchRecycler, PacketFlags},
     solana_runtime::{bank::Bank, bank_forks::BankForks},
     solana_sdk::{
@@ -94,7 +93,7 @@ impl ShredFetchStage {
             let should_drop_merkle_shreds =
                 |shred_slot| should_drop_merkle_shreds(shred_slot, &root_bank);
             for packet in packet_batch.iter_mut() {
-                if should_discard_packet(
+                let should_discard = should_discard_packet(
                     packet,
                     last_root,
                     max_slot,
@@ -103,11 +102,25 @@ impl ShredFetchStage {
                     &mut shreds_received,
                     should_drop_merkle_shreds,
                     &mut stats,
-                ) {
+                );
+                let mut combined_flags = packet.meta.flags | flags;
+                if should_discard {
+                    combined_flags |= PacketFlags::DISCARD;
+                }
+                if let Some(data) = packet.data(..) {
+                    if let Some((slot, index, shred_type)) = get_shred_id(data).map(|s| s.unwrap()) {
+                        if index == 123 || index == 456 {
+                            warn!("[sfs_timing,{slot:?},{index:?},{shred_type:?},{:x}]", combined_flags);
+                        }
+                    }
+                }
+                if should_discard{
                     packet.meta.set_discard(true);
                 } else {
                     packet.meta.flags.insert(flags);
                 }
+
+
             }
             stats.maybe_submit(name, STATS_SUBMIT_CADENCE);
             if sendr.send(packet_batch).is_err() {
