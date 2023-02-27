@@ -4,7 +4,7 @@ use {
     solana_program_runtime::{
         compute_budget::ComputeBudget,
         executor_cache::TransactionExecutorCache,
-        invoke_context::{BuiltinProgram, InvokeContext},
+        invoke_context::{ApplicationFees, BuiltinProgram, InvokeContext},
         log_collector::LogCollector,
         sysvar_cache::SysvarCache,
         timings::{ExecuteDetailsTimings, ExecuteTimings},
@@ -37,10 +37,11 @@ impl ::solana_frozen_abi::abi_example::AbiExample for MessageProcessor {
 }
 
 /// Resultant information gathered from calling process_message()
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ProcessedMessageInfo {
     /// The change in accounts data len
     pub accounts_data_len_delta: i64,
+    pub application_fees: ApplicationFees,
 }
 
 impl MessageProcessor {
@@ -66,6 +67,7 @@ impl MessageProcessor {
         lamports_per_signature: u64,
         current_accounts_data_len: u64,
         accumulated_consumed_units: &mut u64,
+        initial_application_fees: ApplicationFees,
     ) -> Result<ProcessedMessageInfo, TransactionError> {
         let mut invoke_context = InvokeContext::new(
             transaction_context,
@@ -79,6 +81,7 @@ impl MessageProcessor {
             blockhash,
             lamports_per_signature,
             current_accounts_data_len,
+            initial_application_fees,
         );
 
         debug_assert_eq!(program_indices.len(), message.instructions().len());
@@ -179,6 +182,7 @@ impl MessageProcessor {
         }
         Ok(ProcessedMessageInfo {
             accounts_data_len_delta: invoke_context.get_accounts_data_meter().delta(),
+            application_fees: invoke_context.application_fees,
         })
     }
 }
@@ -320,6 +324,7 @@ mod tests {
             0,
             0,
             &mut 0,
+            ApplicationFees::default(),
         );
         assert!(result.is_ok());
         assert_eq!(
@@ -370,6 +375,7 @@ mod tests {
             0,
             0,
             &mut 0,
+            ApplicationFees::default(),
         );
         assert_eq!(
             result,
@@ -410,6 +416,7 @@ mod tests {
             0,
             0,
             &mut 0,
+            ApplicationFees::default(),
         );
         assert_eq!(
             result,
@@ -503,7 +510,7 @@ mod tests {
             ),
         ];
         let mut transaction_context =
-            TransactionContext::new(accounts, Some(Rent::default()), 1, 3);
+            TransactionContext::new(accounts, Some(Rent::default()), 1, 100);
         let program_indices = vec![vec![2]];
         let tx_executor_cache = Rc::new(RefCell::new(TransactionExecutorCache::default()));
         let account_metas = vec![
@@ -547,6 +554,7 @@ mod tests {
             0,
             0,
             &mut 0,
+            ApplicationFees::default(),
         );
         assert_eq!(
             result,
@@ -581,6 +589,7 @@ mod tests {
             0,
             0,
             &mut 0,
+            ApplicationFees::default(),
         );
         assert!(result.is_ok());
 
@@ -612,6 +621,7 @@ mod tests {
             0,
             0,
             &mut 0,
+            ApplicationFees::default(),
         );
         assert!(result.is_ok());
         assert_eq!(
@@ -692,6 +702,7 @@ mod tests {
             0,
             0,
             &mut 0,
+            ApplicationFees::default(),
         );
 
         assert_eq!(
@@ -702,5 +713,233 @@ mod tests {
             ))
         );
         assert_eq!(transaction_context.get_instruction_trace_length(), 2);
+    }
+
+    #[test]
+    fn test_check_application_fees() {
+        let rent_collector = RentCollector::default();
+        let application_fees_id = solana_application_fees_program::id();
+        let builtin_programs = &[BuiltinProgram {
+            program_id: application_fees_id,
+            process_instruction: solana_application_fees_program::processor::process_instruction,
+        }];
+
+        let owner = solana_sdk::pubkey::new_rand();
+        let acc_1 = solana_sdk::pubkey::new_rand();
+        let acc_2 = solana_sdk::pubkey::new_rand();
+
+        let accounts = vec![
+            (acc_1, AccountSharedData::new(1000, 1, &owner)),
+            (acc_2, AccountSharedData::new(0, 1, &owner)),
+            (
+                application_fees_id,
+                create_loadable_account_for_test("application_fees_program"),
+            ),
+        ];
+        let mut transaction_context =
+            TransactionContext::new(accounts, Some(Rent::default()), 1, 100);
+        let program_indices = vec![vec![2]];
+        let tx_executor_cache = Rc::new(RefCell::new(TransactionExecutorCache::default()));
+
+        let account_metas_acc2 = vec![AccountMeta::new(
+            *transaction_context.get_key_of_account_at_index(1).unwrap(),
+            false,
+        ),
+        AccountMeta::new_readonly(
+            *transaction_context.get_key_of_account_at_index(2).unwrap(),
+            false,
+        )];
+
+        let message = SanitizedMessage::Legacy(LegacyMessage::new(Message::new(
+            &[Instruction::new_with_bincode(
+                application_fees_id,
+                &solana_application_fees_program::instruction::ApplicationFeesInstuctions::CheckFees { minimum_fees: 1000 },
+                account_metas_acc2,
+            )],
+            Some(transaction_context.get_key_of_account_at_index(0).unwrap()),
+        )));
+
+        // check no application fees paid for acc_2
+        let sysvar_cache = SysvarCache::default();
+        let mut application_fees = ApplicationFees::default();
+        let result = MessageProcessor::process_message(
+            builtin_programs,
+            &message,
+            &program_indices,
+            &mut transaction_context,
+            rent_collector.rent,
+            None,
+            tx_executor_cache.clone(),
+            Arc::new(FeatureSet::all_enabled()),
+            ComputeBudget::default(),
+            &mut ExecuteTimings::default(),
+            &sysvar_cache,
+            Hash::default(),
+            0,
+            0,
+            &mut 0,
+            application_fees.clone(),
+        );
+        assert_eq!(
+            result,
+            Err(TransactionError::InstructionError(
+                0,
+                InstructionError::ApplicationFeesInsufficient(acc_2, 1000)
+            ))
+        );
+
+        // check insufficient application fees paid for acc_2
+        application_fees.application_fees.insert(acc_2, 500);
+
+        let result = MessageProcessor::process_message(
+            builtin_programs,
+            &message,
+            &program_indices,
+            &mut transaction_context,
+            rent_collector.rent,
+            None,
+            tx_executor_cache.clone(),
+            Arc::new(FeatureSet::all_enabled()),
+            ComputeBudget::default(),
+            &mut ExecuteTimings::default(),
+            &sysvar_cache,
+            Hash::default(),
+            0,
+            0,
+            &mut 0,
+            application_fees.clone(),
+        );
+        assert_eq!(
+            result,
+            Err(TransactionError::InstructionError(
+                0,
+                InstructionError::ApplicationFeesInsufficient(acc_2, 1000)
+            ))
+        );
+
+        // pass when required amount of application fees are paid
+        application_fees.application_fees.insert(acc_2, 1000);
+
+        let result = MessageProcessor::process_message(
+            builtin_programs,
+            &message,
+            &program_indices,
+            &mut transaction_context,
+            rent_collector.rent,
+            None,
+            tx_executor_cache.clone(),
+            Arc::new(FeatureSet::all_enabled()),
+            ComputeBudget::default(),
+            &mut ExecuteTimings::default(),
+            &sysvar_cache,
+            Hash::default(),
+            0,
+            0,
+            &mut 0,
+            application_fees.clone(),
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().application_fees, application_fees);
+
+        // pass when amount of application fees are overpaid
+        application_fees.application_fees.insert(acc_2, 100000);
+
+        let result = MessageProcessor::process_message(
+            builtin_programs,
+            &message,
+            &program_indices,
+            &mut transaction_context,
+            rent_collector.rent,
+            None,
+            tx_executor_cache.clone(),
+            Arc::new(FeatureSet::all_enabled()),
+            ComputeBudget::default(),
+            &mut ExecuteTimings::default(),
+            &sysvar_cache,
+            Hash::default(),
+            0,
+            0,
+            &mut 0,
+            application_fees.clone(),
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().application_fees, application_fees);
+    }
+
+
+    #[test]
+    fn test_rebate_application_fees() {
+        let rent_collector = RentCollector::default();
+        let application_fees_id = solana_application_fees_program::id();
+        let builtin_programs = &[BuiltinProgram {
+            program_id: application_fees_id,
+            process_instruction: solana_application_fees_program::processor::process_instruction,
+        }];
+
+        let owner = solana_sdk::pubkey::new_rand();
+        let acc = solana_sdk::pubkey::new_rand();
+
+        let accounts = vec![
+            (owner, AccountSharedData::new(100000, 0, &owner)),
+            (acc, AccountSharedData::new(1000, 1, &owner)),
+            (
+                application_fees_id,
+                create_loadable_account_for_test("application_fees_program"),
+            ),
+        ];
+        let mut transaction_context =
+            TransactionContext::new(accounts, Some(Rent::default()), 1, 100);
+        let program_indices = vec![vec![2]];
+        let tx_executor_cache = Rc::new(RefCell::new(TransactionExecutorCache::default()));
+
+        let account_metas = vec![ 
+            AccountMeta::new_readonly(
+                acc,
+                false,
+            ),
+            AccountMeta::new_readonly(
+                owner,
+                false,
+            ),
+        ];
+
+        let message = SanitizedMessage::Legacy(LegacyMessage::new(Message::new(
+            &[Instruction::new_with_bincode(
+                application_fees_id,
+                &solana_application_fees_program::instruction::ApplicationFeesInstuctions::Rebate { rebate_fees: 100 },
+                account_metas,
+            )],
+            Some(&owner),
+        )));
+
+        // check owner is signer
+        let sysvar_cache = SysvarCache::default();
+        let mut application_fees = ApplicationFees::default();
+        let result = MessageProcessor::process_message(
+            builtin_programs,
+            &message,
+            &program_indices,
+            &mut transaction_context,
+            rent_collector.rent,
+            None,
+            tx_executor_cache.clone(),
+            Arc::new(FeatureSet::all_enabled()),
+            ComputeBudget::default(),
+            &mut ExecuteTimings::default(),
+            &sysvar_cache,
+            Hash::default(),
+            0,
+            0,
+            &mut 0,
+            application_fees.clone(),
+        );
+        assert_eq!(
+            result,
+            Err(TransactionError::InstructionError(
+                0,
+                InstructionError::MissingRequiredSignature
+            ))
+        );
+
     }
 }

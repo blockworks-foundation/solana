@@ -31,6 +31,7 @@ use {
         alloc::Layout,
         borrow::Cow,
         cell::RefCell,
+        collections::HashMap,
         fmt::{self, Debug},
         rc::Rc,
         sync::Arc,
@@ -110,6 +111,13 @@ pub struct TraceLogStackFrame {
     pub consumed_bpf_units: RefCell<Vec<(usize, u64)>>,
 }
 
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct ApplicationFees {
+    // store the application fee calculated for the transaction
+    pub application_fees: HashMap<Pubkey, u64>,
+    pub rebated: HashMap<Pubkey, u64>,
+}
+
 pub struct InvokeContext<'a> {
     pub transaction_context: &'a mut TransactionContext,
     rent: Rent,
@@ -129,6 +137,7 @@ pub struct InvokeContext<'a> {
     pub lamports_per_signature: u64,
     syscall_context: Vec<Option<SyscallContext>>,
     pub enable_instruction_tracing: bool,
+    pub application_fees: ApplicationFees,
 }
 
 impl<'a> InvokeContext<'a> {
@@ -145,6 +154,7 @@ impl<'a> InvokeContext<'a> {
         blockhash: Hash,
         lamports_per_signature: u64,
         prev_accounts_data_len: u64,
+        application_fees: ApplicationFees,
     ) -> Self {
         Self {
             transaction_context,
@@ -165,6 +175,7 @@ impl<'a> InvokeContext<'a> {
             lamports_per_signature,
             syscall_context: Vec::new(),
             enable_instruction_tracing: false,
+            application_fees,
         }
     }
 
@@ -202,6 +213,7 @@ impl<'a> InvokeContext<'a> {
             Hash::default(),
             0,
             0,
+            ApplicationFees::default(),
         )
     }
 

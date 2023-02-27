@@ -4811,6 +4811,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-application-fees-program"
+version = "1.16.0"
+dependencies = [
+ "bincode",
+ "bytemuck",
+ "log",
+ "num-derive",
+ "num-traits",
+ "rustc_version 0.4.0",
+ "serde",
+ "solana-frozen-abi 1.16.0",
+ "solana-frozen-abi-macro 1.16.0",
+ "solana-program 1.16.0",
+ "solana-program-runtime",
+ "solana-sdk 1.16.0",
+]
+
+[[package]]
 name = "solana-banking-bench"
 version = "1.16.0"
 dependencies = [
@@ -6447,6 +6465,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "solana-address-lookup-table-program",
+ "solana-application-fees-program",
  "solana-bpf-loader-program",
  "solana-bucket-map",
  "solana-compute-budget-program",

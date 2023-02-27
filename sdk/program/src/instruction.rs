@@ -257,6 +257,9 @@ pub enum InstructionError {
     #[error("Max accounts exceeded")]
     MaxAccountsExceeded,
 
+    #[error("Application fees are insufficiently paid for account ({0}) required ({1})")]
+    ApplicationFeesInsufficient(Pubkey, u64),
+
     /// Max instruction trace length exceeded
     #[error("Max instruction trace length exceeded")]
     MaxInstructionTraceLengthExceeded,

@@ -33,6 +33,7 @@
 //! It offers a high-level API that signs transactions
 //! on behalf of the caller, and a low-level API for when they have
 //! already been signed and verified.
+use solana_program_runtime::invoke_context::ApplicationFees;
 #[allow(deprecated)]
 use solana_sdk::recent_blockhashes_account;
 pub use solana_sdk::reward_type::RewardType;
@@ -4221,6 +4222,8 @@ impl Bank {
             lamports_per_signature,
             prev_accounts_data_len,
             &mut executed_units,
+            // TODO: this will be updated for the next patch of application fees
+            ApplicationFees::default(),
         );
         process_message_time.stop();
 
