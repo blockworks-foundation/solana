@@ -30,6 +30,8 @@ solana-streamer = { workspace = true }
 solana-tpu-client = { workspace = true, features = ["default"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+bincode = { workspace = true }
+crossbeam-channel = { workspace = true }
 
 [dev-dependencies]
 crossbeam-channel = { workspace = true }

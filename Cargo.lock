@@ -6220,6 +6220,7 @@ version = "1.16.0"
 dependencies = [
  "async-mutex",
  "async-trait",
+ "bincode",
  "crossbeam-channel",
  "futures 0.3.24",
  "itertools",
@@ -6732,6 +6733,7 @@ dependencies = [
 name = "solana-streamer"
 version = "1.16.0"
 dependencies = [
+ "bincode",
  "crossbeam-channel",
  "futures-util",
  "histogram",
@@ -6749,9 +6751,11 @@ dependencies = [
  "rand 0.7.3",
  "rcgen",
  "rustls 0.20.6",
+ "serde",
  "solana-logger 1.16.0",
  "solana-metrics",
  "solana-perf",
+ "solana-quic-client",
  "solana-sdk 1.16.0",
  "thiserror",
  "tokio",

@@ -2,6 +2,7 @@
 
 pub mod nonblocking;
 pub mod quic_client;
+pub mod bidirectional_channel_handler;
 
 #[macro_use]
 extern crate solana_metrics;
