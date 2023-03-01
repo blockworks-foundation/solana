@@ -206,6 +206,7 @@ mod tests {
         crossbeam_channel::unbounded,
         solana_sdk::{quic::QUIC_PORT_OFFSET, signature::Keypair},
         solana_streamer::{
+            bidirectional_channel::QuicBidirectionalReplyService,
             nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS, quic::StreamStats,
             streamer::StakedNodes,
         },
@@ -263,6 +264,7 @@ mod tests {
             10,
             response_recv_stats,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            QuicBidirectionalReplyService::disabled(),
         )
         .unwrap();
 

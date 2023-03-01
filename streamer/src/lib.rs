@@ -1,4 +1,5 @@
 #![allow(clippy::integer_arithmetic)]
+pub mod bidirectional_channel;
 pub mod nonblocking;
 pub mod packet;
 pub mod quic;
@@ -7,7 +8,6 @@ pub mod sendmmsg;
 pub mod socket;
 pub mod streamer;
 pub mod tls_certificates;
-pub mod bidirectional_channel;
 
 #[macro_use]
 extern crate log;

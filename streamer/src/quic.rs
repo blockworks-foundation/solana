@@ -1,5 +1,6 @@
 use {
     crate::{
+        bidirectional_channel::QuicBidirectionalReplyService,
         nonblocking::quic::ALPN_TPU_PROTOCOL_ID, streamer::StakedNodes,
         tls_certificates::new_self_signed_tls_certificate,
     },
@@ -89,9 +90,9 @@ pub(crate) fn configure_server(
     let timeout = IdleTimeout::from(VarInt::from_u32(QUIC_MAX_TIMEOUT_MS));
     config.max_idle_timeout(Some(timeout));
 
-    // disable bidi & datagrams
-    const MAX_CONCURRENT_BIDI_STREAMS: u32 = 0;
+    const MAX_CONCURRENT_BIDI_STREAMS: u32 = 5;
     config.max_concurrent_bidi_streams(MAX_CONCURRENT_BIDI_STREAMS.into());
+    // disable datagrams
     config.datagram_receive_buffer_size(None);
 
     Ok((server_config, cert_chain_pem))
@@ -309,6 +310,7 @@ pub fn spawn_server(
     max_unstaked_connections: usize,
     stats: Arc<StreamStats>,
     wait_for_chunk_timeout_ms: u64,
+    quic_bidirectional_reply_service: Arc<QuicBidirectionalReplyService>,
 ) -> Result<(Endpoint, thread::JoinHandle<()>), QuicServerError> {
     let runtime = rt();
     let (endpoint, task) = {
@@ -325,6 +327,7 @@ pub fn spawn_server(
             max_unstaked_connections,
             stats,
             wait_for_chunk_timeout_ms,
+            quic_bidirectional_reply_service,
         )
     }?;
     let handle = thread::Builder::new()
@@ -342,6 +345,7 @@ pub fn spawn_server(
 mod test {
     use {
         super::*,
+        crate::bidirectional_channel::QuicBidirectionalReplyService,
         crate::nonblocking::quic::{test::*, DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS},
         crossbeam_channel::unbounded,
         std::net::SocketAddr,
@@ -373,6 +377,7 @@ mod test {
             MAX_UNSTAKED_CONNECTIONS,
             stats,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            QuicBidirectionalReplyService::disabled(),
         )
         .unwrap();
         (t, exit, receiver, server_address)
@@ -429,6 +434,7 @@ mod test {
             MAX_UNSTAKED_CONNECTIONS,
             stats,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            QuicBidirectionalReplyService::disabled(),
         )
         .unwrap();
 
@@ -472,6 +478,7 @@ mod test {
             0, // Do not allow any connection from unstaked clients/nodes
             stats,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            QuicBidirectionalReplyService::disabled(),
         )
         .unwrap();
 

@@ -29,8 +29,9 @@ use {
         bank_forks::BankForks,
         vote_sender_types::{ReplayVoteReceiver, ReplayVoteSender},
     },
-    solana_sdk::{pubkey::Pubkey, signature::Keypair},
+    solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer},
     solana_streamer::{
+        bidirectional_channel::QuicBidirectionalReplyService,
         nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
         quic::{spawn_server, StreamStats, MAX_STAKED_CONNECTIONS, MAX_UNSTAKED_CONNECTIONS},
         streamer::StakedNodes,
@@ -113,6 +114,9 @@ impl Tpu {
             transactions_forwards_quic: transactions_forwards_quic_sockets,
         } = sockets;
 
+        let bidirectional_quic_reply_service =
+            Arc::new(QuicBidirectionalReplyService::new(keypair.pubkey()));
+
         let (packet_sender, packet_receiver) = unbounded();
         let (vote_packet_sender, vote_packet_receiver) = unbounded();
         let (forwarded_packet_sender, forwarded_packet_receiver) = unbounded();
@@ -177,6 +181,7 @@ impl Tpu {
             MAX_UNSTAKED_CONNECTIONS,
             stats.clone(),
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            bidirectional_quic_reply_service.clone(),
         )
         .unwrap();
 
@@ -196,6 +201,7 @@ impl Tpu {
             0, // Prevent unstaked nodes from forwarding transactions
             stats,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT_MS,
+            QuicBidirectionalReplyService::disabled(),
         )
         .unwrap();
 

@@ -28,18 +28,22 @@ pub struct QuicHandlerMessage {
 }
 
 impl QuicHandlerMessage {
-    pub fn new(message:QuicReplyMessage) -> Self {
+    pub fn new(message: QuicReplyMessage) -> Self {
         match message {
-            QuicReplyMessage::TransactionExecutionMessage { leader_identity, transaction_signature, message, approximate_slot, .. } => {
-                Self {
-                    transaction_signature,
-                    server_identity: Some(leader_identity),
-                    message: Self::decode_vec_char_to_message(message),
-                    approximate_slot,
-                    quic_connection_error: false,
-                    server_socket: None,
-                }
-            }
+            QuicReplyMessage::TransactionExecutionMessage {
+                leader_identity,
+                transaction_signature,
+                message,
+                approximate_slot,
+                ..
+            } => Self {
+                transaction_signature,
+                server_identity: Some(leader_identity),
+                message: Self::decode_vec_char_to_message(message),
+                approximate_slot,
+                quic_connection_error: false,
+                server_socket: None,
+            },
         }
     }
 

@@ -32,7 +32,7 @@ pub enum QuicReplyMessage {
         transaction_signature: Signature,
         message: Vec<u8>,
         approximate_slot: Slot,
-        unused: [u8;12],
+        unused: [u8; 12],
     },
 }
 pub const QUIC_REPLY_MESSAGE_STRING_SIZE: usize = 128;
@@ -52,7 +52,7 @@ impl QuicReplyMessage {
             message,
             transaction_signature: transaction_signature,
             approximate_slot: slot,
-            unused: [0;12],
+            unused: [0; 12],
         }
     }
 }
@@ -66,25 +66,24 @@ pub struct QuicBidirectionalData {
     pub last_id: u64,
 }
 
-#[derive(Clone)]
 pub struct QuicBidirectionalMetrics {
-    pub connections_added: Arc<AtomicU64>,
-    pub transactions_added: Arc<AtomicU64>,
-    pub transactions_replied_to: Arc<AtomicU64>,
-    pub transactions_removed: Arc<AtomicU64>,
-    pub connections_disconnected: Arc<AtomicU64>,
-    pub connections_errors: Arc<AtomicU64>,
+    pub connections_added: AtomicU64,
+    pub transactions_added: AtomicU64,
+    pub transactions_replied_to: AtomicU64,
+    pub transactions_removed: AtomicU64,
+    pub connections_disconnected: AtomicU64,
+    pub connections_errors: AtomicU64,
 }
 
 impl QuicBidirectionalMetrics {
     pub fn new() -> Self {
         Self {
-            connections_added: Arc::new(AtomicU64::new(0)),
-            transactions_added: Arc::new(AtomicU64::new(0)),
-            transactions_replied_to: Arc::new(AtomicU64::new(0)),
-            connections_disconnected: Arc::new(AtomicU64::new(0)),
-            transactions_removed: Arc::new(AtomicU64::new(0)),
-            connections_errors: Arc::new(AtomicU64::new(0)),
+            connections_added: AtomicU64::new(0),
+            transactions_added: AtomicU64::new(0),
+            transactions_replied_to: AtomicU64::new(0),
+            connections_disconnected: AtomicU64::new(0),
+            transactions_removed: AtomicU64::new(0),
+            connections_errors: AtomicU64::new(0),
         }
     }
 
@@ -109,13 +108,12 @@ impl QuicBidirectionalMetrics {
     }
 }
 
-#[derive(Clone)]
 pub struct QuicBidirectionalReplyService {
     data: Option<Arc<RwLock<QuicBidirectionalData>>>,
     service_sender: Option<UnboundedSender<QuicReplyMessage>>,
-    serving_handle: Option<Arc<std::thread::JoinHandle<()>>>,
+    serving_handle: Option<std::thread::JoinHandle<()>>,
     do_exit: Arc<AtomicBool>,
-    pub metrics: QuicBidirectionalMetrics,
+    pub metrics: Arc<QuicBidirectionalMetrics>,
     pub identity: Pubkey,
     // usually this is updated during banking stage, so it is the slot when validator was a leader
     pub last_known_slot: Arc<AtomicU64>,
@@ -144,7 +142,7 @@ impl QuicBidirectionalReplyService {
                 last_id: 1,
             }))),
             serving_handle: None,
-            metrics: QuicBidirectionalMetrics::new(),
+            metrics: Arc::new(QuicBidirectionalMetrics::new()),
             identity: identity,
             do_exit: Arc::new(AtomicBool::new(false)),
             last_known_slot: Arc::new(AtomicU64::new(0)),
@@ -153,16 +151,16 @@ impl QuicBidirectionalReplyService {
         instance
     }
 
-    pub fn disabled() -> Self {
-        Self {
+    pub fn disabled() -> Arc<Self> {
+        Arc::new(Self {
             data: None,
             service_sender: None,
             serving_handle: None,
             do_exit: Arc::new(AtomicBool::new(true)),
-            metrics: QuicBidirectionalMetrics::new(),
+            metrics: Arc::new(QuicBidirectionalMetrics::new()),
             identity: Pubkey::default(),
             last_known_slot: Arc::new(AtomicU64::new(0)),
-        }
+        })
     }
 
     pub fn send_message(&self, transaction_signature: &Signature, message: String) {
@@ -423,6 +421,6 @@ impl QuicBidirectionalReplyService {
                 }
             }
         });
-        self.serving_handle = Some(Arc::new(handle));
+        self.serving_handle = Some(handle);
     }
 }
