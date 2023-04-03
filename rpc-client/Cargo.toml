@@ -27,7 +27,7 @@ solana-sdk = { workspace = true }
 solana-transaction-status = { workspace = true }
 solana-version = { workspace = true }
 solana-vote-program = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
+tokio = { version = "1.27.0", features = ["full"] }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
