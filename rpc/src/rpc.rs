@@ -2941,7 +2941,6 @@ pub mod rpc_accounts {
         #[method(name = "getTokenSupply")]
         fn get_token_supply(
             &self,
-            meta: Self::Metadata,
             mint_str: String,
             commitment: Option<CommitmentConfig>,
         ) -> Result<RpcResponse<UiTokenAmount>>;
@@ -2951,7 +2950,7 @@ pub mod rpc_accounts {
         meta: JsonRpcRequestProcessor,
     }
 
-    impl AccountsData for AccountsDataImpl {
+    impl AccountsDataServer for AccountsDataImpl {
         fn get_account_info(
             &self,
             pubkey_str: String,
@@ -3196,18 +3195,16 @@ pub mod rpc_full {
         #[method(name = "getInflationReward")]
         async fn get_inflation_reward(
             &self,
-            meta: Self::Metadata,
             address_strs: Vec<String>,
             config: Option<RpcEpochConfig>,
         ) -> Result<Vec<Option<RpcInflationReward>>>;
 
         #[method(name = "getClusterNodes")]
-        fn get_cluster_nodes(&self, meta: Self::Metadata) -> Result<Vec<RpcContactInfo>>;
+        fn get_cluster_nodes(&self) -> Result<Vec<RpcContactInfo>>;
 
         #[method(name = "getRecentPerformanceSamples")]
         fn get_recent_performance_samples(
             &self,
-            meta: Self::Metadata,
             limit: Option<usize>,
         ) -> Result<Vec<RpcPerfSample>>;
 
@@ -3219,10 +3216,10 @@ pub mod rpc_full {
         ) -> Result<RpcResponse<Vec<Option<TransactionStatus>>>>;
 
         #[method(name = "getMaxRetransmitSlot")]
-        fn get_max_retransmit_slot(&self, meta: Self::Metadata) -> Result<Slot>;
+        fn get_max_retransmit_slot(&self) -> Result<Slot>;
 
         #[method(name = "getMaxShredInsertSlot")]
-        fn get_max_shred_insert_slot(&self, meta: Self::Metadata) -> Result<Slot>;
+        fn get_max_shred_insert_slot(&self) -> Result<Slot>;
 
         #[method(name = "requestAirdrop")]
         fn request_airdrop(
@@ -3235,7 +3232,6 @@ pub mod rpc_full {
         #[method(name = "sendTransaction")]
         fn send_transaction(
             &self,
-            meta: Self::Metadata,
             data: String,
             config: Option<RpcSendTransactionConfig>,
         ) -> Result<String>;
@@ -3243,13 +3239,12 @@ pub mod rpc_full {
         #[method(name = "simulateTransaction")]
         fn simulate_transaction(
             &self,
-            meta: Self::Metadata,
             data: String,
             config: Option<RpcSimulateTransactionConfig>,
         ) -> Result<RpcResponse<RpcSimulateTransactionResult>>;
 
         #[method(name = "minimumLedgerSlot")]
-        fn minimum_ledger_slot(&self, meta: Self::Metadata) -> Result<Slot>;
+        fn minimum_ledger_slot(&self) -> Result<Slot>;
 
         #[method(name = "getBlock")]
         async fn get_block(
@@ -3272,7 +3267,6 @@ pub mod rpc_full {
         #[method(name = "getBlocksWithLimit")]
         async fn get_blocks_with_limit(
             &self,
-            meta: Self::Metadata,
             start_slot: Slot,
             limit: usize,
             commitment: Option<CommitmentConfig>,
@@ -3288,7 +3282,6 @@ pub mod rpc_full {
         #[method(name = "getSignaturesForAddress")]
         async fn get_signatures_for_address(
             &self,
-            meta: Self::Metadata,
             address: String,
             config: Option<RpcSignaturesForAddressConfig>,
         ) -> Result<Vec<RpcConfirmedTransactionStatusWithSignature>>;
@@ -3337,7 +3330,6 @@ pub mod rpc_full {
     impl FullServer for FullImpl {
         fn get_recent_performance_samples(
             &self,
-            meta: Self::Metadata,
             limit: Option<usize>,
         ) -> Result<Vec<RpcPerfSample>> {
             debug!("get_recent_performance_samples request received");
@@ -3350,7 +3342,8 @@ pub mod rpc_full {
                 )));
             }
 
-            Ok(meta
+            Ok(self
+                .meta
                 .blockstore
                 .get_recent_perf_samples(limit)
                 .map_err(|err| {
@@ -3362,9 +3355,9 @@ pub mod rpc_full {
                 .collect())
         }
 
-        fn get_cluster_nodes(&self, meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
+        fn get_cluster_nodes(&self) -> Result<Vec<RpcContactInfo>> {
             debug!("get_cluster_nodes rpc request received");
-            let cluster_info = &meta.cluster_info;
+            let cluster_info = &self.meta.cluster_info;
             let socket_addr_space = cluster_info.socket_addr_space();
             let my_shred_version = cluster_info.my_shred_version();
             Ok(cluster_info
