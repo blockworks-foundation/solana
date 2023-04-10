@@ -2639,7 +2639,7 @@ pub mod rpc_minimal {
 
         fn get_transaction_count(&self, config: Option<RpcContextConfig>) -> Result<u64> {
             debug!("get_transaction_count rpc request received");
-            meta.get_transaction_count(config.unwrap_or_default())
+            self.meta.get_transaction_count(config.unwrap_or_default())
         }
 
         fn get_version(&self) -> Result<RpcVersionInfo> {
@@ -2658,7 +2658,7 @@ pub mod rpc_minimal {
             config: Option<RpcGetVoteAccountsConfig>,
         ) -> Result<RpcVoteAccountStatus> {
             debug!("get_vote_accounts rpc request received");
-            meta.get_vote_accounts(config)
+            self.meta.get_vote_accounts(config)
         }
 
         // TODO: Refactor `solana-validator wait-for-restart-window` to not require this method, so
