@@ -16,11 +16,7 @@ bs58 = { workspace = true }
 crossbeam-channel = { workspace = true }
 dashmap = { workspace = true }
 itertools = { workspace = true }
-jsonrpc-core = { workspace = true }
-jsonrpc-core-client = { workspace = true }
-jsonrpc-derive = { workspace = true }
-jsonrpc-http-server = { workspace = true }
-jsonrpc-pubsub = { workspace = true }
+jsonrpsee = { version = "0.16.2", features = ["macros", "full"] }
 libc = { workspace = true }
 log = { workspace = true }
 rayon = { workspace = true }
