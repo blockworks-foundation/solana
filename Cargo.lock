@@ -6377,6 +6377,7 @@ dependencies = [
  "bs58",
  "crossbeam-channel",
  "dashmap 4.0.2",
+ "hyper",
  "itertools",
  "jsonrpc-core",
  "jsonrpc-core-client",
