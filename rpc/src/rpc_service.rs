@@ -13,11 +13,6 @@ use {
         rpc_health::*,
     },
     crossbeam_channel::unbounded,
-    jsonrpc_core::{futures::prelude::*, MetaIoHandler},
-    jsonrpc_http_server::{
-        hyper, AccessControlAllowOrigin, CloseHandle, DomainsValidation, RequestMiddleware,
-        RequestMiddlewareAction, ServerBuilder,
-    },
     regex::Regex,
     solana_client::connection_cache::ConnectionCache,
     solana_gossip::cluster_info::ClusterInfo,
@@ -390,15 +385,15 @@ impl JsonRpcService {
         // So create a (shared) multi-threaded event_loop for jsonrpc and set its .threads() to 1,
         // so that we avoid the single-threaded event loops from being created automatically by
         // jsonrpc for threads when .threads(N > 1) is given.
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(rpc_threads)
-                .on_thread_start(move || renice_this_thread(rpc_niceness_adj).unwrap())
-                .thread_name("solRpcEl")
-                .enable_all()
-                .build()
-                .expect("Runtime"),
-        );
+        //let runtime = Arc::new(
+        //    tokio::runtime::Builder::new_multi_thread()
+        //        .worker_threads(rpc_threads)
+        //        .on_thread_start(move || renice_this_thread(rpc_niceness_adj).unwrap())
+        //        .thread_name("solRpcEl")
+        //        .enable_all()
+        //        .build()
+        //        .expect("Runtime"),
+        //);
 
         let exit_bigtable_ledger_upload_service = Arc::new(AtomicBool::new(false));
 
@@ -495,24 +490,32 @@ impl JsonRpcService {
         let ledger_path = ledger_path.to_path_buf();
 
         let (close_handle_sender, close_handle_receiver) = unbounded();
+
+        let thread_hdl = tokio::spawn(async move {
+
+
+        });
+
         let thread_hdl = Builder::new()
             .name("solJsonRpcSvc".to_string())
             .spawn(move || {
                 renice_this_thread(rpc_niceness_adj).unwrap();
 
-                let mut io = MetaIoHandler::default();
+                let meta = request_processor.clone();
 
-                io.extend_with(rpc_minimal::MinimalImpl.to_delegate());
+                MinimalImpl { meta }.to_rpc();
+
+                //io.extend_with(rpc_minimal::MinimalImpl.to_delegate());
                 if full_api {
-                    io.extend_with(rpc_bank::BankDataImpl.to_delegate());
-                    io.extend_with(rpc_accounts::AccountsDataImpl.to_delegate());
-                    io.extend_with(rpc_accounts_scan::AccountsScanImpl.to_delegate());
-                    io.extend_with(rpc_full::FullImpl.to_delegate());
-                    io.extend_with(rpc_deprecated_v1_7::DeprecatedV1_7Impl.to_delegate());
-                    io.extend_with(rpc_deprecated_v1_9::DeprecatedV1_9Impl.to_delegate());
+                    rpc_bank::BankDataImpl { meta }.to_rpc();
+                    rpc_accounts::AccountsDataImpl { meta }.to_rpc();
+                    rpc_accounts_scan::AccountsScanImpl { meta }.to_rpc();
+                    rpc_full::FullImpl { meta }.to_rpc();
+                    rpc_deprecated_v1_7::DeprecatedV1_7Impl { meta }.to_rpc();
+                    rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta }.to_rpc();
                 }
                 if obsolete_v1_7_api {
-                    io.extend_with(rpc_obsolete_v1_7::ObsoleteV1_7Impl.to_delegate());
+                    rpc_obsolete_v1_7::ObsoleteV1_7Impl { meta }.to_rpc();
                 }
 
                 let request_middleware = RpcRequestMiddleware::new(
@@ -521,6 +524,12 @@ impl JsonRpcService {
                     bank_forks.clone(),
                     health.clone(),
                 );
+
+                let http_server_handle = ServerBuilder::default()
+                    .build(rpc_addr.clone())
+                    .await?
+                    .start(rpc.clone())?;
+
                 let server = ServerBuilder::with_meta_extractor(
                     io,
                     move |_req: &hyper::Request<hyper::Body>| request_processor.clone(),

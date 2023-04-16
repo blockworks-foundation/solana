@@ -53,6 +53,7 @@ stream-cancel = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true, features = ["codec", "compat"] }
+hyper = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

@@ -1,5 +1,6 @@
 use {
-    jsonrpc_core::{Error, Result},
+    super::rpc::Result,
+    jsonrpsee::core::Error,
     solana_account_decoder::{
         parse_account_data::AccountAdditionalData, parse_token::get_token_account_mint, UiAccount,
         UiAccountData, UiAccountEncoding,

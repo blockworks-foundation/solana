@@ -1,6 +1,5 @@
 //! The `rpc` module implements the Solana RPC interface.
 
-use jsonrpsee::core::Error;
 use {
     crate::{
         max_slots::MaxSlots, optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank,
@@ -10,6 +9,7 @@ use {
     bincode::{config::Options, serialize},
     crossbeam_channel::{unbounded, Receiver, Sender},
     jsonrpsee::proc_macros::rpc,
+    jsonrpsee::core::Error,
     solana_account_decoder::{
         parse_token::{is_known_spl_token_id, token_amount_to_ui_amount, UiTokenAmount},
         UiAccount, UiAccountEncoding, UiDataSliceConfig, MAX_BASE58_BYTES,
@@ -111,8 +111,8 @@ use {
     },
 };
 
-type RpcCustomResult<T> = std::result::Result<T, RpcCustomError>;
-type Result<T> = std::result::Result<T, jsonrpsee::core::Error>;
+pub type RpcCustomResult<T> = std::result::Result<T, RpcCustomError>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 pub const MAX_REQUEST_BODY_SIZE: usize = 50 * (1 << 10); // 50kB
 pub const PERFORMANCE_SAMPLES_LIMIT: usize = 720;
@@ -4205,7 +4205,10 @@ pub mod rpc_obsolete_v1_7 {
         ) -> Result<Vec<String>>;
     }
 
-    pub struct ObsoleteV1_7Impl;
+    pub struct ObsoleteV1_7Impl {
+        meta: JsonRpcRequestProcessor
+    }
+
     impl ObsoleteV1_7Server for ObsoleteV1_7Impl {
         fn confirm_transaction(
             &self,
