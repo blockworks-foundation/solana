@@ -1,5 +1,9 @@
 //! The `rpc_service` module implements the Solana JSON RPC service.
 
+use jsonrpsee::{server::ServerBuilder, RpcModule};
+
+use crate::request_middleware::{RequestMiddleware, RequestMiddlewareAction};
+
 use {
     crate::{
         cluster_tpu_info::ClusterTpuInfo,
@@ -203,7 +207,9 @@ impl RpcRequestMiddleware {
             .map(|m| m.len())
             .unwrap_or(0)
             .to_string();
+
         info!("get {} -> {:?} ({} bytes)", path, filename, file_length);
+
         RequestMiddlewareAction::Respond {
             should_validate_hosts: true,
             response: Box::pin(async {
@@ -356,7 +362,7 @@ impl JsonRpcService {
         max_complete_transaction_status_slot: Arc<AtomicU64>,
         max_complete_rewards_slot: Arc<AtomicU64>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
-    ) -> Result<Self, String> {
+    ) -> std::result::Result<Self, String> {
         info!("rpc bound to {:?}", rpc_addr);
         info!("rpc configuration: {:?}", config);
         let rpc_threads = 1.max(config.rpc_threads);
@@ -385,15 +391,15 @@ impl JsonRpcService {
         // So create a (shared) multi-threaded event_loop for jsonrpc and set its .threads() to 1,
         // so that we avoid the single-threaded event loops from being created automatically by
         // jsonrpc for threads when .threads(N > 1) is given.
-        //let runtime = Arc::new(
-        //    tokio::runtime::Builder::new_multi_thread()
-        //        .worker_threads(rpc_threads)
-        //        .on_thread_start(move || renice_this_thread(rpc_niceness_adj).unwrap())
-        //        .thread_name("solRpcEl")
-        //        .enable_all()
-        //        .build()
-        //        .expect("Runtime"),
-        //);
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(rpc_threads)
+                .on_thread_start(move || renice_this_thread(rpc_niceness_adj).unwrap())
+                .thread_name("solRpcEl")
+                .enable_all()
+                .build()
+                .expect("Runtime"),
+        );
 
         let exit_bigtable_ledger_upload_service = Arc::new(AtomicBool::new(false));
 
@@ -492,75 +498,72 @@ impl JsonRpcService {
         let (close_handle_sender, close_handle_receiver) = unbounded();
 
         let thread_hdl = tokio::spawn(async move {
+            let meta = request_processor.clone();
 
+            let module = RpcModule::new(());
 
-        });
+            module.merge(MinimalImpl { meta }.to_rpc());
 
-        let thread_hdl = Builder::new()
-            .name("solJsonRpcSvc".to_string())
-            .spawn(move || {
-                renice_this_thread(rpc_niceness_adj).unwrap();
+            if full_api {
+                module.merge(rpc_bank::BankDataImpl { meta }.to_rpc());
+                module.merge(rpc_accounts::AccountsDataImpl { meta }.to_rpc());
+                module.merge(rpc_accounts_scan::AccountsScanImpl { meta }.to_rpc());
+                module.merge(rpc_full::FullImpl { meta }.to_rpc());
+                module.merge(rpc_deprecated_v1_7::DeprecatedV1_7Impl { meta }.to_rpc());
+                module.merge(rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta }.to_rpc());
+            }
+            if obsolete_v1_7_api {
+                module.merge(rpc_obsolete_v1_7::ObsoleteV1_7Impl { meta }.to_rpc());
+            }
 
-                let meta = request_processor.clone();
+            let request_middleware = RpcRequestMiddleware::new(
+                ledger_path,
+                snapshot_config,
+                bank_forks.clone(),
+                health.clone(),
+            );
 
-                MinimalImpl { meta }.to_rpc();
-
-                //io.extend_with(rpc_minimal::MinimalImpl.to_delegate());
-                if full_api {
-                    rpc_bank::BankDataImpl { meta }.to_rpc();
-                    rpc_accounts::AccountsDataImpl { meta }.to_rpc();
-                    rpc_accounts_scan::AccountsScanImpl { meta }.to_rpc();
-                    rpc_full::FullImpl { meta }.to_rpc();
-                    rpc_deprecated_v1_7::DeprecatedV1_7Impl { meta }.to_rpc();
-                    rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta }.to_rpc();
-                }
-                if obsolete_v1_7_api {
-                    rpc_obsolete_v1_7::ObsoleteV1_7Impl { meta }.to_rpc();
-                }
-
-                let request_middleware = RpcRequestMiddleware::new(
-                    ledger_path,
-                    snapshot_config,
-                    bank_forks.clone(),
-                    health.clone(),
-                );
-
-                let http_server_handle = ServerBuilder::default()
-                    .build(rpc_addr.clone())
-                    .await?
-                    .start(rpc.clone())?;
-
-                let server = ServerBuilder::with_meta_extractor(
-                    io,
-                    move |_req: &hyper::Request<hyper::Body>| request_processor.clone(),
-                )
-                .event_loop_executor(runtime.handle().clone())
-                .threads(1)
-                .cors(DomainsValidation::AllowOnly(vec![
-                    AccessControlAllowOrigin::Any,
-                ]))
+            let cors = tower_http::cors::CorsLayer::new()
+                .allow_methods([hyper::Method::POST])
+                .allow_origin(tower_http::cors::Any)
                 .cors_max_age(86400)
-                .request_middleware(request_middleware)
+                .allow_headers([hyper::header::CONTENT_TYPE]);
+
+            let middleware = tower::ServiceBuilder::new()
+                .layer(cors)
+                .service_fn(request_middleware);
+
+            let server = ServerBuilder::default()
+                .custom_tokio_runtime(runtime.handle().clone())
+                .set_middleware(middleware)
                 .max_request_body_size(max_request_body_size)
-                .start_http(&rpc_addr);
+                .build(rpc_addr.clone())
+                .await?
+                .start(module)?;
 
-                if let Err(e) = server {
-                    warn!(
-                        "JSON RPC service unavailable error: {:?}. \n\
+            //            let server = ServerBuilder::with_meta_extractor(
+            //                io,
+            //                move |_req: &hyper::Request<hyper::Body>| request_processor.clone(),
+            //            )
+            //            .request_middleware(request_middleware)
+            //            .start_http(&rpc_addr);
+
+            if let Err(e) = server {
+                warn!(
+                    "JSON RPC service unavailable error: {:?}. \n\
                            Also, check that port {} is not already in use by another application",
-                        e,
-                        rpc_addr.port()
-                    );
-                    close_handle_sender.send(Err(e.to_string())).unwrap();
-                    return;
-                }
+                    e,
+                    rpc_addr.port()
+                );
+                close_handle_sender.send(Err(e.to_string())).unwrap();
+                return;
+            }
 
-                let server = server.unwrap();
-                close_handle_sender.send(Ok(server.close_handle())).unwrap();
-                server.wait();
-                exit_bigtable_ledger_upload_service.store(true, Ordering::Relaxed);
-            })
-            .unwrap();
+            let server = server.unwrap();
+            close_handle_sender.send(Ok(server.close_handle())).unwrap();
+            server.wait();
+            exit_bigtable_ledger_upload_service.store(true, Ordering::Relaxed);
+        });
 
         let close_handle = close_handle_receiver.recv().unwrap()?;
         let close_handle_ = close_handle.clone();

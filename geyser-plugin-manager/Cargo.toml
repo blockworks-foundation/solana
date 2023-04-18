@@ -14,8 +14,7 @@ edition = { workspace = true }
 bs58 = { workspace = true }
 crossbeam-channel = { workspace = true }
 json5 = { workspace = true }
-jsonrpc-core = { workspace = true }
-jsonrpc-server-utils = { workspace = true }
+jsonrpsee = { workspace = true }
 libloading = { workspace = true }
 log = { workspace = true }
 serde_json = { workspace = true }

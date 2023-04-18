@@ -16,7 +16,7 @@ bs58 = { workspace = true }
 crossbeam-channel = { workspace = true }
 dashmap = { workspace = true }
 itertools = { workspace = true }
-jsonrpsee = { version = "0.16.2", features = ["macros", "full"] }
+jsonrpsee = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 rayon = { workspace = true }
@@ -54,6 +54,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true, features = ["codec", "compat"] }
 hyper = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
