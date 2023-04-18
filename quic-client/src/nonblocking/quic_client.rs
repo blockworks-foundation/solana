@@ -1,6 +1,9 @@
 //! Simple nonblocking client that connects to a given UDP port with the QUIC protocol
 //! and provides an interface for sending data which is restricted by the
 //! server's flow control.
+
+use solana_connection_cache::connection_cache_stats;
+use solana_sdk::bpf_loader_upgradeable::is_set_authority_checked_instruction;
 use {
     async_mutex::Mutex,
     async_trait::async_trait,
@@ -301,11 +304,30 @@ impl QuicClient {
     async fn _send_buffer_using_conn(
         data: &[u8],
         connection: &Connection,
+        stats: &ClientStats,
     ) -> Result<(), QuicError> {
+        let mut open_stream_measure = Measure::start("open_stream_measure");
         let mut send_stream = connection.open_uni().await?;
+        open_stream_measure.stop();
 
+        let mut write_stream_measure: Measure = Measure::start("write_stream_measure");
         send_stream.write_all(data).await?;
+        write_stream_measure.stop();
+
+        let mut finish_stream_measure = Measure::start("finish_stream_measure");
         send_stream.finish().await?;
+        finish_stream_measure.stop();
+
+        stats
+            .open_stream_ms
+            .fetch_add(open_stream_measure.as_ms(), Ordering::Relaxed);
+        stats
+            .write_stream_ms
+            .fetch_add(write_stream_measure.as_ms(), Ordering::Relaxed);
+        stats
+            .finish_stream_ms
+            .fetch_add(finish_stream_measure.as_ms(), Ordering::Relaxed);
+
         Ok(())
     }
 
@@ -414,7 +436,13 @@ impl QuicClient {
                 .update_stat(&self.stats.acks, new_stats.frame_tx.acks);
 
             last_connection_id = connection.stable_id();
-            match Self::_send_buffer_using_conn(data, &connection).await {
+            match Self::_send_buffer_using_conn(
+                data,
+                &connection,
+                &connection_stats.total_client_stats,
+            )
+            .await
+            {
                 Ok(()) => {
                     return Ok(connection);
                 }
@@ -485,24 +513,28 @@ impl QuicClient {
             return Ok(());
         }
         let connection = self
-            ._send_buffer(buffers[0].as_ref(), stats, connection_stats)
+            ._send_buffer(buffers[0].as_ref(), stats, connection_stats.clone())
             .await
             .map_err(Into::<ClientErrorKind>::into)?;
 
         // Used to avoid dereferencing the Arc multiple times below
         // by just getting a reference to the NewConnection once
-        let connection_ref: &Connection = &connection;
+        let connection_ref = connection.as_ref();
+        let connection_cache_stats_ref = connection_stats.as_ref();
 
         let chunks = buffers[1..buffers.len()].iter().chunks(self.chunk_size);
 
         let futures: Vec<_> = chunks
             .into_iter()
             .map(|buffs| {
-                join_all(
-                    buffs
-                        .into_iter()
-                        .map(|buf| Self::_send_buffer_using_conn(buf.as_ref(), connection_ref)),
-                )
+                join_all(buffs.into_iter().map(|buf| {
+                    let res = Self::_send_buffer_using_conn(
+                        buf.as_ref(),
+                        connection_ref,
+                        &connection_cache_stats_ref.total_client_stats,
+                    );
+                    return res;
+                }))
             })
             .collect();
 

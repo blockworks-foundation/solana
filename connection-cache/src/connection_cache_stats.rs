@@ -193,6 +193,9 @@ impl ConnectionCacheStats {
                     .swap(0, Ordering::Relaxed),
                 i64
             ),
+            ("open_stream_ms", self.total_client_stats.open_stream_ms.swap(0, Ordering::Relaxed), i64),
+            ("write_stream_ms", self.total_client_stats.write_stream_ms.swap(0, Ordering::Relaxed), i64),
+            ("finish_stream_ms", self.total_client_stats.finish_stream_ms.swap(0, Ordering::Relaxed), i64),
         );
     }
 }

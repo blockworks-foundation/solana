@@ -19,6 +19,10 @@ pub struct ClientStats {
     pub acks: MovingStat,
     pub make_connection_ms: AtomicU64,
     pub send_timeout: AtomicU64,
+
+    pub open_stream_ms: AtomicU64,
+    pub write_stream_ms: AtomicU64,
+    pub finish_stream_ms: AtomicU64,
 }
 
 pub trait ClientConnection: Sync + Send {
