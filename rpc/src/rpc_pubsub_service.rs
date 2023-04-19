@@ -2,14 +2,13 @@
 
 use {
     crate::{
-        rpc_pubsub::{RpcSolPubSubImpl, RpcSolPubSubInternal},
+        rpc_pubsub::RpcSolPubSubImpl,
         rpc_subscription_tracker::{
             SubscriptionControl, SubscriptionId, SubscriptionParams, SubscriptionToken,
         },
         rpc_subscriptions::{RpcNotification, RpcSubscriptions},
     },
     dashmap::{mapref::entry::Entry, DashMap},
-    jsonrpc_core::IoHandler,
     soketto::handshake::{server, Server},
     solana_metrics::TokenCounter,
     solana_sdk::timing::AtomicInterval,

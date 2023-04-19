@@ -1,6 +1,6 @@
 //! The `rpc` module implements the Solana RPC interface.
 
-use jsonrpsee::types::error::CallError;
+use jsonrpsee::types::error::{CallError, ErrorCode};
 
 use {
     crate::{
@@ -116,7 +116,7 @@ use {
 pub type RpcCustomResult<T> = std::result::Result<T, RpcCustomError>;
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub const MAX_REQUEST_BODY_SIZE: usize = 50 * (1 << 10); // 50kB
+pub const MAX_REQUEST_BODY_SIZE: u32 = 50 * (1 << 10); // 50kB
 pub const PERFORMANCE_SAMPLES_LIMIT: usize = 720;
 
 fn new_response<T>(bank: &Bank, value: T) -> RpcResponse<T> {
@@ -150,7 +150,7 @@ pub struct JsonRpcConfig {
     pub full_api: bool,
     pub obsolete_v1_7_api: bool,
     pub rpc_scan_and_fix_roots: bool,
-    pub max_request_body_size: Option<usize>,
+    pub max_request_body_size: Option<u32>,
 }
 
 impl JsonRpcConfig {
@@ -781,9 +781,9 @@ impl JsonRpcRequestProcessor {
                         .take(limit.saturating_sub(slot_leaders.len())),
                 );
             } else {
-                return Err(Error::invalid_params(format!(
+                return Err(CallError::InvalidParams(format!(
                     "Invalid slot range: leader schedule for epoch {epoch} is unavailable"
-                )));
+                )).into());
             }
 
             epoch += 1;
@@ -797,11 +797,11 @@ impl JsonRpcRequestProcessor {
         match self.blockstore.slot_meta_iterator(0) {
             Ok(mut metas) => match metas.next() {
                 Some((slot, _meta)) => Ok(slot),
-                None => Err(Error::invalid_request()),
+                None => Err(ErrorCode::InvalidParams.into()),
             },
             Err(err) => {
                 warn!("slot_meta_iterator failed: {:?}", err);
-                Err(Error::invalid_request())
+                Err(ErrorCode::InvalidParams.into())
             }
         }
     }
