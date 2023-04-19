@@ -1,5 +1,7 @@
 //! The `rpc` module implements the Solana RPC interface.
 
+use jsonrpsee::types::error::CallError;
+
 use {
     crate::{
         max_slots::MaxSlots, optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank,
@@ -8,8 +10,8 @@ use {
     base64::{prelude::BASE64_STANDARD, Engine},
     bincode::{config::Options, serialize},
     crossbeam_channel::{unbounded, Receiver, Sender},
-    jsonrpsee::proc_macros::rpc,
     jsonrpsee::core::Error,
+    jsonrpsee::proc_macros::rpc,
     solana_account_decoder::{
         parse_token::{is_known_spl_token_id, token_amount_to_ui_amount, UiTokenAmount},
         UiAccount, UiAccountEncoding, UiDataSliceConfig, MAX_BASE58_BYTES,
@@ -4206,7 +4208,7 @@ pub mod rpc_obsolete_v1_7 {
     }
 
     pub struct ObsoleteV1_7Impl {
-        meta: JsonRpcRequestProcessor
+        meta: JsonRpcRequestProcessor,
     }
 
     impl ObsoleteV1_7Server for ObsoleteV1_7Impl {
@@ -4338,11 +4340,11 @@ where
         .allow_trailing_bytes()
         .deserialize_from(&wire_output[..])
         .map_err(|err| {
-            Error::invalid_params(format!(
+            CallError::InvalidParams(Err(format!(
                 "failed to deserialize {}: {}",
                 type_name::<T>(),
                 &err.to_string()
-            ))
+            )))
         })
         .map(|output| (wire_output, output))
 }

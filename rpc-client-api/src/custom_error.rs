@@ -1,8 +1,7 @@
 //! Implementation defined RPC server errors
 
 use crate::response::RpcSimulateTransactionResult;
-use jsonrpsee::core::Error;
-use jsonrpsee::types::{ErrorObjectOwned, ErrorObject};
+use jsonrpsee::{core::Error, types::ErrorObject};
 use solana_sdk::clock::Slot;
 use solana_transaction_status::EncodeError;
 
