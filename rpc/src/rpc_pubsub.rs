@@ -52,7 +52,7 @@ pub trait RpcSolPubSub {
         item = RpcResponse<UiAccount>,
         unsubscribe = "accountUnsubscribe"
     )]
-    fn account_subscribe(&self, pubkey_str: String, config: Option<RpcAccountInfoConfig>);
+    async fn account_subscribe(&self, pubkey_str: String, config: Option<RpcAccountInfoConfig>);
 
     // Get notification every time account data owned by a particular program is changed
     // Accepts pubkey parameter as base-58 encoded string
@@ -61,7 +61,7 @@ pub trait RpcSolPubSub {
         item = RpcResponse<RpcKeyedAccount>,
         unsubscribe = "programUnsubscribe"
     )]
-    fn program_subscribe(&self, pubkey_str: String, config: Option<RpcProgramAccountsConfig>);
+    async fn program_subscribe(&self, pubkey_str: String, config: Option<RpcProgramAccountsConfig>);
 
     // Get logs for all transactions that reference the specified address
     #[subscription(
@@ -69,7 +69,7 @@ pub trait RpcSolPubSub {
         item = RpcResponse<RpcLogsResponse>,
         unsubscribe = "logsUnsubscribe"
     )]
-    fn logs_subscribe(
+    async fn logs_subscribe(
         &self,
         filter: RpcTransactionLogsFilter,
         config: Option<RpcTransactionLogsConfig>,
@@ -82,7 +82,7 @@ pub trait RpcSolPubSub {
         unsubscribe = "signatureUnsubscribe",
         item = RpcResponse<RpcSignatureResult>
     )]
-    fn signature_subscribe(
+    async fn signature_subscribe(
         &self,
         signature_str: String,
         config: Option<RpcSignatureSubscribeConfig>,
@@ -94,7 +94,7 @@ pub trait RpcSolPubSub {
         unsubscribe = "slotUnsubscribe",
         item = SlotInfo
     )]
-    fn slot_subscribe(&self);
+    async fn slot_subscribe(&self);
 
     // Get series of updates for all slots
     #[subscription(
@@ -102,7 +102,7 @@ pub trait RpcSolPubSub {
         unsubscribe = "slotsUpdatesUnsubscribe",
         item = Arc<SlotUpdate>,
     )]
-    fn slots_updates_subscribe(&self);
+    async fn slots_updates_subscribe(&self);
 
     // Subscribe to block data and content
     #[subscription(
@@ -110,7 +110,7 @@ pub trait RpcSolPubSub {
         unsubscribe = "blockUnsubscribe",
         item = Arc<RpcBlockUpdate>
     )]
-    fn block_subscribe(
+    async fn block_subscribe(
         &self,
         filter: RpcBlockSubscribeFilter,
         config: Option<RpcBlockSubscribeConfig>,
@@ -122,7 +122,7 @@ pub trait RpcSolPubSub {
         unsubscribe = "voteUnsubscribe",
         item = RpcVote
     )]
-    fn vote_subscribe(&self);
+    async fn vote_subscribe(&self);
 
     // Get notification when a new root is set
     #[subscription(
@@ -130,7 +130,7 @@ pub trait RpcSolPubSub {
         unsubscribe = "rootUnsubscribe",
         item = Slot
     )]
-    fn root_subscribe(&self);
+    async fn root_subscribe(&self);
 }
 
 pub use internal::RpcSolPubSubInternalServer;
@@ -279,11 +279,11 @@ impl RpcSolPubSubImpl {
         if self.current_subscriptions.remove(&id).is_some() {
             Ok(true)
         } else {
-            Err(Error {
-                code: ErrorCode::InvalidParams,
-                message: "Invalid subscription id.".into(),
-                data: None,
-            })
+            Err(ErrorObject::owned(
+                ErrorCode::InvalidParams,
+                "Invalid subscription id.".into(),
+                None,
+            ))
         }
     }
 
@@ -297,10 +297,12 @@ impl RpcSolPubSubImpl {
 }
 
 fn param<T: FromStr>(param_str: &str, thing: &str) -> Result<T> {
-    param_str.parse::<T>().map_err(|_e| Error {
-        code: ErrorCode::InvalidParams,
-        message: format!("Invalid Request: Invalid {thing} provided"),
-        data: None,
+    param_str.parse::<T>().map_err(|_e| {
+        ErrorObject::owned(
+            ErrorCode::InternalError.code(),
+            format!("Invalid Request: Invalid {thing} provided"),
+            None::<()>,
+        )
     })
 }
 
@@ -365,8 +367,8 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
                 RpcTransactionLogsFilter::Mentions(keys) => {
                     if keys.len() != 1 {
                         return Err(ErrorObject::owned(
-                            ErrorCode::InvalidParams.into(),
-                            "Invalid Request: Only 1 address supported".into(),
+                            ErrorCode::InvalidParams.code(),
+                            "Invalid Request: Only 1 address supported".to_string(),
                             None::<()>,
                         )
                         .into());
@@ -449,21 +451,21 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
 
     fn block_unsubscribe(&self, id: SubscriptionId) -> Result<bool> {
         if !self.config.enable_block_subscription {
-            return Err(Error::new(ErrorCode::MethodNotFound));
+            return Err(ErrorObject::from(ErrorCode::MethodNotFound));
         }
         self.unsubscribe(id)
     }
 
     fn vote_subscribe(&self) -> Result<SubscriptionId> {
         if !self.config.enable_vote_subscription {
-            return Err(Error::new(ErrorCode::MethodNotFound));
+            return Err(ErrorObject::from(ErrorCode::MethodNotFound));
         }
         self.subscribe(SubscriptionParams::Vote)
     }
 
     fn vote_unsubscribe(&self, id: SubscriptionId) -> Result<bool> {
         if !self.config.enable_vote_subscription {
-            return Err(Error::new(ErrorCode::MethodNotFound));
+            return Err(ErrorObject::from(ErrorCode::MethodNotFound));
         }
         self.unsubscribe(id)
     }

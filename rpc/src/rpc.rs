@@ -1,6 +1,7 @@
 //! The `rpc` module implements the Solana RPC interface.
 
-use jsonrpsee::types::error::{CallError, ErrorCode};
+use jsonrpsee::types::error::CallError;
+use jsonrpsee::types::{error::ErrorCode, ErrorObject, ErrorObjectOwned};
 
 use {
     crate::{
@@ -114,10 +115,15 @@ use {
 };
 
 pub type RpcCustomResult<T> = std::result::Result<T, RpcCustomError>;
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, ErrorObject<'static>>;
 
 pub const MAX_REQUEST_BODY_SIZE: u32 = 50 * (1 << 10); // 50kB
 pub const PERFORMANCE_SAMPLES_LIMIT: usize = 720;
+
+#[inline]
+pub fn invalid_params(err: String) -> ErrorObjectOwned {
+    ErrorObject::owned(ErrorCode::InvalidParams.code(), err, None::<()>)
+}
 
 fn new_response<T>(bank: &Bank, value: T) -> RpcResponse<T> {
     RpcResponse {
@@ -781,9 +787,10 @@ impl JsonRpcRequestProcessor {
                         .take(limit.saturating_sub(slot_leaders.len())),
                 );
             } else {
-                return Err(CallError::InvalidParams(format!(
+                return Err(invalid_params(
                     "Invalid slot range: leader schedule for epoch {epoch} is unavailable"
-                )).into());
+                        .to_string(),
+                ));
             }
 
             epoch += 1;
@@ -801,7 +808,9 @@ impl JsonRpcRequestProcessor {
             },
             Err(err) => {
                 warn!("slot_meta_iterator failed: {:?}", err);
-                Err(ErrorCode::InvalidParams.into())
+                Err(invalid_params(
+                    "Invalid slot range: leader schedule for epoch {epoch} is".to_string(),
+                ))
             }
         }
     }
@@ -928,7 +937,7 @@ impl JsonRpcRequestProcessor {
         let vote_accounts = bank.vote_accounts();
         let epoch_vote_accounts = bank
             .epoch_vote_accounts(bank.get_epoch_and_slot_index(bank.slot()).0)
-            .ok_or_else(Error::invalid_request)?;
+            .ok_or_else(|| ErrorObject::from(ErrorCode::InvalidRequest))?;
         let default_vote_state = VoteState::default();
         let delinquent_validator_slot_distance = config
             .delinquent_slot_distance
@@ -1038,10 +1047,10 @@ impl JsonRpcRequestProcessor {
         }
         .into();
         if let Err(BlockstoreError::SlotCleanedUp) = result {
-            return Err(err);
+            return Err(err.into());
         }
         if slot < first_available_block {
-            return Err(err);
+            return Err(err.into());
         }
         Ok(())
     }
@@ -1187,7 +1196,7 @@ impl JsonRpcRequestProcessor {
             return Ok(vec![]);
         }
         if end_slot - start_slot > MAX_GET_CONFIRMED_BLOCKS_RANGE {
-            return Err(Error::invalid_params(format!(
+            return Err(invalid_params(format!(
                 "Slot range too large; max {MAX_GET_CONFIRMED_BLOCKS_RANGE}"
             )));
         }
@@ -1209,7 +1218,7 @@ impl JsonRpcRequestProcessor {
                         bigtable_blocks
                     })
                     .map_err(|_| {
-                        Error::invalid_params(
+                        invalid_params(
                             "BigTable query failed (maybe timeout due to too large range?)"
                                 .to_string(),
                         )
@@ -1253,7 +1262,7 @@ impl JsonRpcRequestProcessor {
         check_is_at_least_confirmed(commitment)?;
 
         if limit > MAX_GET_CONFIRMED_BLOCKS_RANGE as usize {
-            return Err(Error::invalid_params(format!(
+            return Err(invalid_params(format!(
                 "Limit too large; max {MAX_GET_CONFIRMED_BLOCKS_RANGE}"
             )));
         }
@@ -1285,7 +1294,7 @@ impl JsonRpcRequestProcessor {
         let mut blocks: Vec<_> = self
             .blockstore
             .rooted_slot_iterator(max(start_slot, lowest_blockstore_slot))
-            .map_err(|_| Error::internal_error())?
+            .map_err(|_| ErrorObject::from(ErrorCode::InternalError))?
             .take(limit)
             .filter(|&slot| slot <= highest_super_majority_root)
             .collect();
@@ -1396,7 +1405,7 @@ impl JsonRpcRequestProcessor {
                 if let Some(status) = self
                     .blockstore
                     .get_rooted_transaction_status(signature)
-                    .map_err(|_| Error::internal_error())?
+                    .map_err(|_| ErrorObject::from(ErrorCode::InternalError))?
                     .filter(|(slot, _status_meta)| {
                         slot <= &self
                             .block_commitment_cache
@@ -1602,7 +1611,7 @@ impl JsonRpcRequestProcessor {
             } = self
                 .blockstore
                 .get_confirmed_signatures_for_address2(address, highest_slot, before, until, limit)
-                .map_err(|err| Error::invalid_params(format!("{err}")))?;
+                .map_err(|err| invalid_params(format!("{err}")))?;
 
             let map_results = |results: Vec<ConfirmedTransactionStatusWithSignature>| {
                 results
@@ -1722,28 +1731,28 @@ impl JsonRpcRequestProcessor {
         })?;
         let epoch = config.epoch.unwrap_or_else(|| bank.epoch());
         if bank.epoch().saturating_sub(epoch) > solana_sdk::stake_history::MAX_ENTRIES as u64 {
-            return Err(Error::invalid_params(format!(
+            return Err(invalid_params(format!(
                 "Invalid param: epoch {epoch:?} is too far in the past"
             )));
         }
         if epoch > bank.epoch() {
-            return Err(Error::invalid_params(format!(
+            return Err(invalid_params(format!(
                 "Invalid param: epoch {epoch:?} has not yet started"
             )));
         }
 
         let stake_account = bank
             .get_account(pubkey)
-            .ok_or_else(|| Error::invalid_params("Invalid param: account not found".to_string()))?;
+            .ok_or_else(|| invalid_params("Invalid param: account not found".to_string()))?;
         let stake_state: StakeState = stake_account
             .state()
-            .map_err(|_| Error::invalid_params("Invalid param: not a stake account".to_string()))?;
+            .map_err(|_| invalid_params("Invalid param: not a stake account".to_string()))?;
         let delegation = stake_state.delegation();
 
         let rent_exempt_reserve = stake_state
             .meta()
             .ok_or_else(|| {
-                Error::invalid_params("Invalid param: stake account not initialized".to_string())
+                invalid_params("Invalid param: stake account not initialized".to_string())
             })?
             .rent_exempt_reserve;
 
@@ -1760,10 +1769,10 @@ impl JsonRpcRequestProcessor {
 
         let stake_history_account = bank
             .get_account(&stake_history::id())
-            .ok_or_else(Error::internal_error)?;
+            .ok_or_else(|| ErrorObject::from(ErrorCode::InternalError))?;
         let stake_history =
             solana_sdk::account::from_account::<StakeHistory, _>(&stake_history_account)
-                .ok_or_else(Error::internal_error)?;
+                .ok_or_else(|| ErrorObject::from(ErrorCode::InternalError))?;
 
         let StakeActivationStatus {
             effective,
@@ -1802,17 +1811,17 @@ impl JsonRpcRequestProcessor {
         commitment: Option<CommitmentConfig>,
     ) -> Result<RpcResponse<UiTokenAmount>> {
         let bank = self.bank(commitment);
-        let account = bank.get_account(pubkey).ok_or_else(|| {
-            Error::invalid_params("Invalid param: could not find account".to_string())
-        })?;
+        let account = bank
+            .get_account(pubkey)
+            .ok_or_else(|| invalid_params("Invalid param: could not find account".to_string()))?;
 
         if !is_known_spl_token_id(account.owner()) {
-            return Err(Error::invalid_params(
+            return Err(invalid_params(
                 "Invalid param: not a Token account".to_string(),
             ));
         }
         let token_account = StateWithExtensions::<TokenAccount>::unpack(account.data())
-            .map_err(|_| Error::invalid_params("Invalid param: not a Token account".to_string()))?;
+            .map_err(|_| invalid_params("Invalid param: not a Token account".to_string()))?;
         let mint = &Pubkey::from_str(&token_account.base.mint.to_string())
             .expect("Token account mint should be convertible to Pubkey");
         let (_, decimals) = get_mint_owner_and_decimals(&bank, mint)?;
@@ -1826,17 +1835,16 @@ impl JsonRpcRequestProcessor {
         commitment: Option<CommitmentConfig>,
     ) -> Result<RpcResponse<UiTokenAmount>> {
         let bank = self.bank(commitment);
-        let mint_account = bank.get_account(mint).ok_or_else(|| {
-            Error::invalid_params("Invalid param: could not find account".to_string())
-        })?;
+        let mint_account = bank
+            .get_account(mint)
+            .ok_or_else(|| invalid_params("Invalid param: could not find account".to_string()))?;
         if !is_known_spl_token_id(mint_account.owner()) {
-            return Err(Error::invalid_params(
+            return Err(invalid_params(
                 "Invalid param: not a Token mint".to_string(),
             ));
         }
-        let mint = StateWithExtensions::<Mint>::unpack(mint_account.data()).map_err(|_| {
-            Error::invalid_params("Invalid param: mint could not be unpacked".to_string())
-        })?;
+        let mint = StateWithExtensions::<Mint>::unpack(mint_account.data())
+            .map_err(|_| invalid_params("Invalid param: mint could not be unpacked".to_string()))?;
 
         let supply = token_amount_to_ui_amount(mint.base.supply, mint.base.decimals);
         Ok(new_response(&bank, supply))
@@ -1850,7 +1858,7 @@ impl JsonRpcRequestProcessor {
         let bank = self.bank(commitment);
         let (mint_owner, decimals) = get_mint_owner_and_decimals(&bank, mint)?;
         if !is_known_spl_token_id(&mint_owner) {
-            return Err(Error::invalid_params(
+            return Err(invalid_params(
                 "Invalid param: not a Token mint".to_string(),
             ));
         }
@@ -2211,25 +2219,25 @@ fn verify_transaction(
 fn verify_filter(input: &RpcFilterType) -> Result<()> {
     input
         .verify()
-        .map_err(|e| Error::invalid_params(format!("Invalid param: {e:?}")))
+        .map_err(|e| invalid_params(format!("Invalid param: {e:?}")))
 }
 
 pub fn verify_pubkey(input: &str) -> Result<Pubkey> {
     input
         .parse()
-        .map_err(|e| Error::invalid_params(format!("Invalid param: {e:?}")))
+        .map_err(|e| invalid_params(format!("Invalid param: {e:?}")))
 }
 
 fn verify_hash(input: &str) -> Result<Hash> {
     input
         .parse()
-        .map_err(|e| Error::invalid_params(format!("Invalid param: {e:?}")))
+        .map_err(|e| invalid_params(format!("Invalid param: {e:?}")))
 }
 
 fn verify_signature(input: &str) -> Result<Signature> {
     input
         .parse()
-        .map_err(|e| Error::invalid_params(format!("Invalid param: {e:?}")))
+        .map_err(|e| invalid_params(format!("Invalid param: {e:?}")))
 }
 
 fn verify_token_account_filter(
@@ -2261,7 +2269,7 @@ fn verify_and_parse_signatures_for_address_params(
     let limit = limit.unwrap_or(MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT);
 
     if limit == 0 || limit > MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT {
-        return Err(Error::invalid_params(format!(
+        return Err(invalid_params(format!(
             "Invalid limit; max {MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT}"
         )));
     }
@@ -2270,8 +2278,8 @@ fn verify_and_parse_signatures_for_address_params(
 
 pub(crate) fn check_is_at_least_confirmed(commitment: CommitmentConfig) -> Result<()> {
     if !commitment.is_at_least_confirmed() {
-        return Err(Error::invalid_params(
-            "Method does not support commitment below `confirmed`",
+        return Err(invalid_params(
+            "Method does not support commitment below `confirmed`".to_owned(),
         ));
     }
     Ok(())
@@ -2308,13 +2316,12 @@ fn encode_account<T: ReadableAccount>(
         && account.data().len() > MAX_BASE58_BYTES
     {
         let message = format!("Encoded binary (base 58) data should be less than {MAX_BASE58_BYTES} bytes, please use Base64 encoding.");
-        //        Err(Error {
-        //            code: error::ErrorCode::InvalidRequest,
-        //            message,
-        //            data: None,
-        //        })
-        //  WARN: not sure if this is the correct approach
-        return Err(Error::Custom(message));
+
+        Err(ErrorObject::owned(
+            ErrorCode::InvalidRequest.code(),
+            message,
+            None::<()>,
+        ))
     } else {
         Ok(UiAccount::encode(
             pubkey, account, encoding, None, data_slice,
@@ -2448,7 +2455,7 @@ fn get_token_program_id_and_mint(
         TokenAccountsFilter::Mint(mint) => {
             let (mint_owner, _) = get_mint_owner_and_decimals(bank, &mint)?;
             if !is_known_spl_token_id(&mint_owner) {
-                return Err(Error::invalid_params(
+                return Err(invalid_params(
                     "Invalid param: not a Token mint".to_string(),
                 ));
             }
@@ -2458,7 +2465,7 @@ fn get_token_program_id_and_mint(
             if is_known_spl_token_id(&program_id) {
                 Ok((program_id, None))
             } else {
-                Err(Error::invalid_params(
+                Err(invalid_params(
                     "Invalid param: unrecognized Token program id".to_string(),
                 ))
             }
@@ -2755,7 +2762,7 @@ pub mod rpc_bank {
                 data_len
             );
             if data_len as u64 > system_instruction::MAX_PERMITTED_DATA_LENGTH {
-                return Err(Error::invalid_request());
+                return Err(ErrorObject::from(ErrorCode::InvalidRequest));
             }
             Ok(self
                 .meta
@@ -2793,7 +2800,7 @@ pub mod rpc_bank {
 
             let limit = limit as usize;
             if limit > MAX_GET_SLOT_LEADERS {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "Invalid limit; max {MAX_GET_SLOT_LEADERS}"
                 )));
             }
@@ -2829,7 +2836,7 @@ pub mod rpc_bank {
                     let first_slot = range.first_slot;
                     let last_slot = range.last_slot.unwrap_or_else(|| bank.slot());
                     if last_slot < first_slot {
-                        return Err(Error::invalid_params(format!(
+                        return Err(invalid_params(format!(
                             "lastSlot, {last_slot}, cannot be less than firstSlot, {first_slot}"
                         )));
                     }
@@ -2839,14 +2846,14 @@ pub mod rpc_bank {
 
             let slot_history = bank.get_slot_history();
             if first_slot < slot_history.oldest() {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "firstSlot, {}, is too small; min {}",
                     first_slot,
                     slot_history.oldest()
                 )));
             }
             if last_slot > slot_history.newest() {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "lastSlot, {}, is too large; max {}",
                     last_slot,
                     slot_history.newest()
@@ -2979,7 +2986,7 @@ pub mod rpc_accounts {
                 .max_multiple_accounts
                 .unwrap_or(MAX_MULTIPLE_ACCOUNTS);
             if pubkey_strs.len() > max_multiple_accounts {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "Too many inputs provided; max {max_multiple_accounts}"
                 )));
             }
@@ -3113,7 +3120,7 @@ pub mod rpc_accounts_scan {
                 (None, vec![], false)
             };
             if filters.len() > MAX_GET_PROGRAM_ACCOUNT_FILTERS {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "Too many filters provided; max {MAX_GET_PROGRAM_ACCOUNT_FILTERS}"
                 )));
             }
@@ -3339,7 +3346,7 @@ pub mod rpc_full {
             let limit = limit.unwrap_or(PERFORMANCE_SAMPLES_LIMIT);
 
             if limit > PERFORMANCE_SAMPLES_LIMIT {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "Invalid limit; max {PERFORMANCE_SAMPLES_LIMIT}"
                 )));
             }
@@ -3350,7 +3357,7 @@ pub mod rpc_full {
                 .get_recent_perf_samples(limit)
                 .map_err(|err| {
                     warn!("get_recent_performance_samples failed: {:?}", err);
-                    Error::invalid_request()
+                    ErrorObject::from(ErrorCode::InvalidRequest)
                 })?
                 .into_iter()
                 .map(|(slot, sample)| rpc_perf_sample_from_perf_sample(slot, sample))
@@ -3419,7 +3426,7 @@ pub mod rpc_full {
                 signature_strs.len()
             );
             if signature_strs.len() > MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "Too many inputs provided; max {MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS}"
                 )));
             }
@@ -3460,7 +3467,7 @@ pub mod rpc_full {
                 .meta
                 .config
                 .faucet_addr
-                .ok_or_else(Error::invalid_request)?;
+                .ok_or_else(|| ErrorObject::from(ErrorCode::InvalidRequest))?;
             let pubkey = verify_pubkey(&pubkey_str)?;
 
             let config = config.unwrap_or_default();
@@ -3479,13 +3486,13 @@ pub mod rpc_full {
                 request_airdrop_transaction(&faucet_addr, &pubkey, lamports, blockhash).map_err(
                     |err| {
                         info!("request_airdrop_transaction failed: {:?}", err);
-                        Error::internal_error()
+                        ErrorCode::InternalError
                     },
                 )?;
 
             let wire_transaction = serialize(&transaction).map_err(|err| {
                 info!("request_airdrop: serialize error: {:?}", err);
-                Error::internal_error()
+                ErrorCode::InternalError
             })?;
 
             let signature = if !transaction.signatures.is_empty() {
@@ -3519,7 +3526,7 @@ pub mod rpc_full {
             } = config.unwrap_or_default();
             let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
             let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
-                Error::invalid_params(format!(
+                invalid_params(format!(
                     "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
                 ))
             })?;
@@ -3629,7 +3636,7 @@ pub mod rpc_full {
             } = config.unwrap_or_default();
             let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
             let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
-                Error::invalid_params(format!(
+                invalid_params(format!(
                     "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
                 ))
             })?;
@@ -3642,8 +3649,8 @@ pub mod rpc_full {
             })?;
             if replace_recent_blockhash {
                 if sig_verify {
-                    return Err(Error::invalid_params(
-                        "sigVerify may not be used with replaceRecentBlockhash",
+                    return Err(invalid_params(
+                        "sigVerify may not be used with replaceRecentBlockhash".to_string(),
                     ));
                 }
                 unsanitized_tx
@@ -3673,11 +3680,11 @@ pub mod rpc_full {
                 if accounts_encoding == UiAccountEncoding::Binary
                     || accounts_encoding == UiAccountEncoding::Base58
                 {
-                    return Err(Error::invalid_params("base58 encoding not supported"));
+                    return Err(invalid_params("base58 encoding not supported".to_string()));
                 }
 
                 if config_accounts.addresses.len() > number_of_accounts {
-                    return Err(Error::invalid_params(format!(
+                    return Err(invalid_params(format!(
                         "Too many accounts provided; max {number_of_accounts}"
                     )));
                 }
@@ -3849,7 +3856,7 @@ pub mod rpc_full {
             config: Option<RpcContextConfig>,
         ) -> Result<RpcResponse<bool>> {
             let blockhash =
-                Hash::from_str(&blockhash).map_err(|e| Error::invalid_params(format!("{e:?}")))?;
+                Hash::from_str(&blockhash).map_err(|e| invalid_params(format!("{e:?}")))?;
             self.meta
                 .is_blockhash_valid(&blockhash, config.unwrap_or_default())
         }
@@ -3866,13 +3873,9 @@ pub mod rpc_full {
             )?;
             let bank = &*self.meta.get_bank_with_config(config.unwrap_or_default())?;
             let sanitized_versioned_message = SanitizedVersionedMessage::try_from(message)
-                .map_err(|err| {
-                    Error::invalid_params(format!("invalid transaction message: {err}"))
-                })?;
+                .map_err(|err| invalid_params(format!("invalid transaction message: {err}")))?;
             let sanitized_message = SanitizedMessage::try_new(sanitized_versioned_message, bank)
-                .map_err(|err| {
-                    Error::invalid_params(format!("invalid transaction message: {err}"))
-                })?;
+                .map_err(|err| invalid_params(format!("invalid transaction message: {err}")))?;
             let fee = bank.get_fee_for_message(&sanitized_message);
             Ok(new_response(bank, fee))
         }
@@ -3896,7 +3899,7 @@ pub mod rpc_full {
                 pubkey_strs.len()
             );
             if pubkey_strs.len() > MAX_TX_ACCOUNT_LOCKS {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "Too many inputs provided; max {MAX_TX_ACCOUNT_LOCKS}"
                 )));
             }
@@ -3991,7 +3994,7 @@ pub mod rpc_deprecated_v1_9 {
         ) -> Result<RpcResponse<Option<RpcFeeCalculator>>> {
             debug!("get_fee_calculator_for_blockhash rpc request received");
             let blockhash =
-                Hash::from_str(&blockhash).map_err(|e| Error::invalid_params(format!("{e:?}")))?;
+                Hash::from_str(&blockhash).map_err(|e| invalid_params(format!("{e:?}")))?;
             self.meta
                 .get_fee_calculator_for_blockhash(&blockhash, commitment)
         }
@@ -4266,12 +4269,12 @@ pub mod rpc_obsolete_v1_7 {
             );
             let pubkey = verify_pubkey(&pubkey_str)?;
             if end_slot < start_slot {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "start_slot {start_slot} must be less than or equal to end_slot {end_slot}"
                 )));
             }
             if end_slot - start_slot > MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS_SLOT_RANGE {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "Slot range too large; max {MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS_SLOT_RANGE}"
                 )));
             }
@@ -4298,7 +4301,7 @@ where
         TransactionBinaryEncoding::Base58 => {
             inc_new_counter_info!("rpc-base58_encoded_tx", 1);
             if encoded.len() > MAX_BASE58_SIZE {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "base58 encoded {} too large: {} bytes (max: encoded/raw {}/{})",
                     type_name::<T>(),
                     encoded.len(),
@@ -4308,12 +4311,12 @@ where
             }
             bs58::decode(encoded)
                 .into_vec()
-                .map_err(|e| Error::invalid_params(format!("invalid base58 encoding: {e:?}")))?
+                .map_err(|e| invalid_params(format!("invalid base58 encoding: {e:?}")))?
         }
         TransactionBinaryEncoding::Base64 => {
             inc_new_counter_info!("rpc-base64_encoded_tx", 1);
             if encoded.len() > MAX_BASE64_SIZE {
-                return Err(Error::invalid_params(format!(
+                return Err(invalid_params(format!(
                     "base64 encoded {} too large: {} bytes (max: encoded/raw {}/{})",
                     type_name::<T>(),
                     encoded.len(),
@@ -4327,7 +4330,7 @@ where
         }
     };
     if wire_output.len() > PACKET_DATA_SIZE {
-        return Err(Error::invalid_params(format!(
+        return Err(invalid_params(format!(
             "decoded {} too large: {} bytes (max: {} bytes)",
             type_name::<T>(),
             wire_output.len(),
@@ -4340,11 +4343,11 @@ where
         .allow_trailing_bytes()
         .deserialize_from(&wire_output[..])
         .map_err(|err| {
-            CallError::InvalidParams(Err(format!(
+            invalid_params(format!(
                 "failed to deserialize {}: {}",
                 type_name::<T>(),
                 &err.to_string()
-            )))
+            ))
         })
         .map(|output| (wire_output, output))
 }
@@ -4360,7 +4363,7 @@ fn sanitize_transaction(
         address_loader,
         true, // require_static_program_ids
     )
-    .map_err(|err| Error::invalid_params(format!("invalid transaction: {err}")))
+    .map_err(|err| invalid_params(format!("invalid transaction: {err}")))
 }
 
 pub fn create_validator_exit(exit: &Arc<AtomicBool>) -> Arc<RwLock<Exit>> {
@@ -6416,7 +6419,7 @@ pub mod tests {
         let bad_pubkey = "a1b2c3d4";
         assert_eq!(
             verify_pubkey(bad_pubkey),
-            Err(Error::invalid_params("Invalid param: WrongSize"))
+            Err(invalid_params("Invalid param: WrongSize".to_string()))
         );
     }
 
@@ -6435,7 +6438,7 @@ pub mod tests {
         let bad_signature = "a1b2c3d4";
         assert_eq!(
             verify_signature(bad_signature),
-            Err(Error::invalid_params("Invalid param: WrongSize"))
+            Err(invalid_params("Invalid param: WrongSize".to_string()))
         );
     }
 
@@ -8288,7 +8291,7 @@ pub mod tests {
         assert_eq!(
             decode_and_deserialize::<Transaction>(tx58, TransactionBinaryEncoding::Base58)
                 .unwrap_err(),
-            Error::invalid_params(format!(
+            invalid_params(format!(
                 "base58 encoded solana_sdk::transaction::Transaction too large: {tx58_len} bytes (max: encoded/raw {MAX_BASE58_SIZE}/{PACKET_DATA_SIZE})",
             )
         ));
@@ -8298,7 +8301,7 @@ pub mod tests {
         assert_eq!(
             decode_and_deserialize::<Transaction>(tx64, TransactionBinaryEncoding::Base64)
                 .unwrap_err(),
-            Error::invalid_params(format!(
+            invalid_params(format!(
                 "base64 encoded solana_sdk::transaction::Transaction too large: {tx64_len} bytes (max: encoded/raw {MAX_BASE64_SIZE}/{PACKET_DATA_SIZE})",
             )
         ));
@@ -8309,7 +8312,7 @@ pub mod tests {
         assert_eq!(
             decode_and_deserialize::<Transaction>(tx58, TransactionBinaryEncoding::Base58)
                 .unwrap_err(),
-            Error::invalid_params(format!(
+            invalid_params(format!(
                 "decoded solana_sdk::transaction::Transaction too large: {too_big} bytes (max: {PACKET_DATA_SIZE} bytes)"
             ))
         );
@@ -8318,7 +8321,7 @@ pub mod tests {
         assert_eq!(
             decode_and_deserialize::<Transaction>(tx64, TransactionBinaryEncoding::Base64)
                 .unwrap_err(),
-            Error::invalid_params(format!(
+            invalid_params(format!(
                 "decoded solana_sdk::transaction::Transaction too large: {too_big} bytes (max: {PACKET_DATA_SIZE} bytes)"
             ))
         );
@@ -8328,7 +8331,7 @@ pub mod tests {
         assert_eq!(
             decode_and_deserialize::<Transaction>(tx64.clone(), TransactionBinaryEncoding::Base64)
                 .unwrap_err(),
-            Error::invalid_params(
+            invalid_params(
                 "failed to deserialize solana_sdk::transaction::Transaction: invalid value: \
                 continue signal on byte-three, expected a terminal signal on or before byte-three"
                     .to_string()
@@ -8339,14 +8342,14 @@ pub mod tests {
         assert_eq!(
             decode_and_deserialize::<Transaction>(tx64, TransactionBinaryEncoding::Base64)
                 .unwrap_err(),
-            Error::invalid_params("invalid base64 encoding: InvalidByte(1640, 33)".to_string())
+            invalid_params("invalid base64 encoding: InvalidByte(1640, 33)".to_string())
         );
 
         let mut tx58 = bs58::encode(&tx_ser).into_string();
         assert_eq!(
             decode_and_deserialize::<Transaction>(tx58.clone(), TransactionBinaryEncoding::Base58)
                 .unwrap_err(),
-            Error::invalid_params(
+            invalid_params(
                 "failed to deserialize solana_sdk::transaction::Transaction: invalid value: \
                 continue signal on byte-three, expected a terminal signal on or before byte-three"
                     .to_string()
@@ -8357,7 +8360,7 @@ pub mod tests {
         assert_eq!(
             decode_and_deserialize::<Transaction>(tx58, TransactionBinaryEncoding::Base58)
                 .unwrap_err(),
-            Error::invalid_params(
+            invalid_params(
                 "invalid base58 encoding: InvalidCharacter { character: '!', index: 1680 }"
                     .to_string(),
             )
@@ -8378,7 +8381,7 @@ pub mod tests {
         )
         .unwrap()
         .1;
-        let expect58 = Error::invalid_params(
+        let expect58 = invalid_params(
             "invalid transaction: Transaction failed to sanitize accounts offsets correctly"
                 .to_string(),
         );
@@ -8405,9 +8408,7 @@ pub mod tests {
 
         assert_eq!(
             sanitize_transaction(versioned_tx, SimpleAddressLoader::Disabled).unwrap_err(),
-            Error::invalid_params(
-                "invalid transaction: Transaction version is unsupported".to_string(),
-            )
+            invalid_params("invalid transaction: Transaction version is unsupported".to_string(),)
         );
     }
 
