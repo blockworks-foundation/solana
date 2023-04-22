@@ -265,8 +265,8 @@ impl RpcSolPubSubImpl {
     fn subscribe(&self, params: SubscriptionParams) -> Result<SubscriptionId> {
         let token = self.subscription_control.subscribe(params).map_err(|_| {
             ErrorObject::owned(
-                ErrorCode::InternalError,
-                "Internal Error: Subscription refused. Node subscription limit reached".into(),
+                ErrorCode::InternalError.code(),
+                "Internal Error: Subscription refused. Node subscription limit reached".to_string(),
                 None,
             )
         })?;
