@@ -6513,6 +6513,7 @@ dependencies = [
  "bs58",
  "crossbeam-channel",
  "dashmap 4.0.2",
+ "futures-util",
  "hyper",
  "itertools",
  "jsonrpsee",

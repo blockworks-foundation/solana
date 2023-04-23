@@ -56,6 +56,7 @@ tokio-util = { workspace = true, features = ["codec", "compat"] }
 hyper = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
+futures-util = "0.3.28"
 
 [dev-dependencies]
 serial_test = { workspace = true }

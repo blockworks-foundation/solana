@@ -2,10 +2,8 @@
 
 use std::time::Duration;
 
-use jsonrpsee::{
-    server::{ServerBuilder},
-    RpcModule,
-};
+use futures_util::TryStreamExt;
+use jsonrpsee::{server::ServerBuilder, RpcModule};
 use tokio::task::JoinHandle;
 use tower_http::cors::MaxAge;
 
