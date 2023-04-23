@@ -1,10 +1,9 @@
 //! The `rpc_service` module implements the Solana JSON RPC service.
 
-use futures_util::stream::try_stream::TryStreamExt;
 use std::time::Duration;
 
 use jsonrpsee::{
-    server::{ServerBuilder, ServerHandle},
+    server::{ServerBuilder},
     RpcModule,
 };
 use tokio::task::JoinHandle;

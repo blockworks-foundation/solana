@@ -267,7 +267,7 @@ impl RpcSolPubSubImpl {
             ErrorObject::owned(
                 ErrorCode::InternalError.code(),
                 "Internal Error: Subscription refused. Node subscription limit reached".to_string(),
-                None,
+                None::<()>,
             )
         })?;
         let id = token.id();
@@ -280,9 +280,9 @@ impl RpcSolPubSubImpl {
             Ok(true)
         } else {
             Err(ErrorObject::owned(
-                ErrorCode::InvalidParams,
-                "Invalid subscription id.".into(),
-                None,
+                ErrorCode::InvalidParams.code(),
+                "Invalid subscription id.".to_string(),
+                None::<()>,
             ))
         }
     }
@@ -425,7 +425,7 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
         config: Option<RpcBlockSubscribeConfig>,
     ) -> Result<SubscriptionId> {
         if !self.config.enable_block_subscription {
-            return Err(ErrorObject::from(ErrorCode::MethodNotFound.into()));
+            return Err(ErrorObject::from(ErrorCode::MethodNotFound));
         }
         let config = config.unwrap_or_default();
         let commitment = config.commitment.unwrap_or_default();

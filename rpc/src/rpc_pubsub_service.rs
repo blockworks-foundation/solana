@@ -1,5 +1,9 @@
 //! The `pubsub` module implements a threaded subscription service on client RPC request
 
+use jsonrpsee::RpcModule;
+
+use crate::rpc_pubsub::RpcSolPubSubInternalServer;
+
 use {
     crate::{
         rpc_pubsub::RpcSolPubSubImpl,
@@ -369,14 +373,18 @@ async fn handle_connection(
     let mut data = Vec::new();
     let current_subscriptions = Arc::new(DashMap::new());
 
-    let mut json_rpc_handler = IoHandler::new();
+    let mut module = RpcModule::new(());
     let rpc_impl = RpcSolPubSubImpl::new(
         config,
         subscription_control,
         Arc::clone(&current_subscriptions),
     );
+
     json_rpc_handler.extend_with(rpc_impl.to_delegate());
-    let broadcast_handler = BroadcastHandler::new(current_subscriptions);
+    let broadcast_handler = BroadcastHandler {
+        current_subscriptions,
+    };
+
     loop {
         // Extra block for dropping `receive_future`.
         {
@@ -414,9 +422,10 @@ async fn handle_connection(
                 break;
             }
         };
-
-        if let Some(response) = json_rpc_handler.handle_request(data_str).await {
-            sender.send_text(&response).await?;
+        if let Ok((_, mut recv)) = module.raw_json_request(data_str, 1).await {
+            if let Some(recv) = recv.recv().await {
+                sender.send_text(recv).await?;
+            }
         }
         data.clear();
     }

@@ -1,6 +1,5 @@
 //! The `rpc` module implements the Solana RPC interface.
 
-use jsonrpsee::types::error::CallError;
 use jsonrpsee::types::{error::ErrorCode, ErrorObject, ErrorObjectOwned};
 
 use {
@@ -4133,7 +4132,7 @@ pub mod rpc_deprecated_v1_7 {
             let signature = verify_signature(&signature_str)?;
 
             self.meta
-                .get_transaction(signature.unwrap(), config.map(|config| config.convert()))
+                .get_transaction(signature, config.map(|config| config.convert()))
                 .await
         }
 
