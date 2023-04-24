@@ -10,7 +10,6 @@ use {
     base64::{prelude::BASE64_STANDARD, Engine},
     bincode::{config::Options, serialize},
     crossbeam_channel::{unbounded, Receiver, Sender},
-    jsonrpsee::core::Error,
     jsonrpsee::proc_macros::rpc,
     solana_account_decoder::{
         parse_token::{is_known_spl_token_id, token_amount_to_ui_amount, UiTokenAmount},
@@ -1040,16 +1039,16 @@ impl JsonRpcRequestProcessor {
             .blockstore
             .get_first_available_block()
             .unwrap_or_default();
-        let err: Error = RpcCustomError::BlockCleanedUp {
+        let err = RpcCustomError::BlockCleanedUp {
             slot,
             first_available_block,
         }
         .into();
         if let Err(BlockstoreError::SlotCleanedUp) = result {
-            return Err(err.into());
+            return Err(err);
         }
         if slot < first_available_block {
-            return Err(err.into());
+            return Err(err);
         }
         Ok(())
     }
