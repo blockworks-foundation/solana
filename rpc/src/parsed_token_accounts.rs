@@ -2,7 +2,6 @@ use crate::rpc::invalid_params;
 
 use {
     super::rpc::Result,
-    jsonrpsee::core::Error,
     solana_account_decoder::{
         parse_account_data::AccountAdditionalData, parse_token::get_token_account_mint, UiAccount,
         UiAccountData, UiAccountEncoding,

@@ -515,34 +515,50 @@ impl JsonRpcService {
 
                     let mut module = RpcModule::new(());
 
-                    module.merge(MinimalImpl { meta: meta.clone() }.into_rpc());
+                    module
+                        .merge(MinimalImpl { meta: meta.clone() }.into_rpc())
+                        .unwrap();
 
                     if full_api {
-                        module.merge(rpc_bank::BankDataImpl { meta: meta.clone() }.into_rpc());
-                        module.merge(
-                            rpc_accounts::AccountsDataImpl { meta: meta.clone() }.into_rpc(),
-                        );
-                        module.merge(
-                            rpc_accounts_scan::AccountsScanImpl { meta: meta.clone() }.into_rpc(),
-                        );
-                        module.merge(rpc_full::FullImpl { meta: meta.clone() }.into_rpc());
-                        module.merge(
-                            rpc_deprecated_v1_7::DeprecatedV1_7Impl { meta: meta.clone() }
-                                .into_rpc(),
-                        );
-                        module.merge(
-                            rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta: meta.clone() }
-                                .into_rpc(),
-                        );
+                        module
+                            .merge(rpc_bank::BankDataImpl { meta: meta.clone() }.into_rpc())
+                            .unwrap();
+                        module
+                            .merge(rpc_accounts::AccountsDataImpl { meta: meta.clone() }.into_rpc())
+                            .unwrap();
+                        module
+                            .merge(
+                                rpc_accounts_scan::AccountsScanImpl { meta: meta.clone() }
+                                    .into_rpc(),
+                            )
+                            .unwrap();
+                        module
+                            .merge(rpc_full::FullImpl { meta: meta.clone() }.into_rpc())
+                            .unwrap();
+                        module
+                            .merge(
+                                rpc_deprecated_v1_7::DeprecatedV1_7Impl { meta: meta.clone() }
+                                    .into_rpc(),
+                            )
+                            .unwrap();
+                        module
+                            .merge(
+                                rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta: meta.clone() }
+                                    .into_rpc(),
+                            )
+                            .unwrap();
                     }
 
                     if obsolete_v1_7_api {
-                        module.merge(
-                            rpc_obsolete_v1_7::ObsoleteV1_7Impl { meta: meta.clone() }.into_rpc(),
-                        );
+                        module
+                            .merge(
+                                rpc_obsolete_v1_7::ObsoleteV1_7Impl { meta: meta.clone() }
+                                    .into_rpc(),
+                            )
+                            .unwrap();
                     }
 
-                    let request_middleware = RpcRequestMiddleware::new(
+                    let _request_middleware = RpcRequestMiddleware::new(
                         ledger_path,
                         snapshot_config,
                         bank_forks.clone(),
@@ -562,7 +578,7 @@ impl JsonRpcService {
                         //                        .custom_tokio_runtime(runtime.handle().clone())
                         .set_middleware(middleware)
                         .max_request_body_size(max_request_body_size)
-                        .build(rpc_addr.clone())
+                        .build(rpc_addr)
                         .await
                         .expect("Error building server")
                         .start(module);

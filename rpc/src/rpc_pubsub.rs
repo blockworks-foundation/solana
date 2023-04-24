@@ -13,21 +13,17 @@ use {
         },
     },
     dashmap::DashMap,
-    jsonrpsee::core::Error,
     jsonrpsee::types::error::ErrorCode,
-    solana_account_decoder::{UiAccount, UiAccountEncoding},
+    solana_account_decoder::UiAccountEncoding,
     solana_rpc_client_api::{
         config::{
             RpcAccountInfoConfig, RpcBlockSubscribeConfig, RpcBlockSubscribeFilter,
             RpcProgramAccountsConfig, RpcSignatureSubscribeConfig, RpcTransactionLogsConfig,
             RpcTransactionLogsFilter,
         },
-        response::{
-            Response as RpcResponse, RpcBlockUpdate, RpcKeyedAccount, RpcLogsResponse,
-            RpcSignatureResult, RpcVersionInfo, RpcVote, SlotInfo, SlotUpdate,
-        },
+        response::RpcVersionInfo,
     },
-    solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
+    solana_sdk::{pubkey::Pubkey, signature::Signature},
     solana_transaction_status::UiTransactionEncoding,
     std::{str::FromStr, sync::Arc},
 };
@@ -370,8 +366,7 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
                             ErrorCode::InvalidParams.code(),
                             "Invalid Request: Only 1 address supported".to_string(),
                             None::<()>,
-                        )
-                        .into());
+                        ));
                     }
                     LogsSubscriptionKind::Single(param::<Pubkey>(&keys[0], "mentions")?)
                 }
