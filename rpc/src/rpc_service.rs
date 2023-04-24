@@ -3,7 +3,10 @@
 use std::time::Duration;
 
 use futures_util::TryStreamExt;
-use jsonrpsee::{server::ServerBuilder, RpcModule};
+use jsonrpsee::{
+    server::{ServerBuilder, ServerHandle},
+    RpcModule,
+};
 use tokio::task::JoinHandle;
 use tower_http::cors::MaxAge;
 
@@ -68,7 +71,7 @@ pub struct JsonRpcService {
     #[cfg(test)]
     pub request_processor: JsonRpcRequestProcessor, // Used only by test_rpc_new()...
 
-    close_handle: Option<StopHandle>,
+    close_handle: Option<ServerHandle>,
 }
 
 struct RpcRequestMiddleware {
@@ -557,9 +560,11 @@ impl JsonRpcService {
                 return;
             }
 
-            close_handle_sender.send(Ok(server.close_handle())).unwrap();
+            let server = server.unwrap();
 
-            server.unwrap().stopped().await;
+            close_handle_sender.send(Ok(server.clone())).unwrap();
+
+            server.stopped().await;
             exit_bigtable_ledger_upload_service.store(true, Ordering::Relaxed);
         });
 
@@ -583,7 +588,7 @@ impl JsonRpcService {
 
     pub fn exit(&mut self) {
         if let Some(c) = self.close_handle.take() {
-            c.close()
+            c.stop().unwrap()
         }
     }
 
