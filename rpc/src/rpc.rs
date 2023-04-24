@@ -2473,7 +2473,7 @@ fn get_token_program_id_and_mint(
 }
 
 fn _send_transaction(
-    meta: JsonRpcRequestProcessor,
+    meta: &JsonRpcRequestProcessor,
     signature: Signature,
     wire_transaction: Vec<u8>,
     last_valid_block_height: u64,
@@ -2556,7 +2556,7 @@ pub mod rpc_minimal {
     }
 
     pub struct MinimalImpl {
-        meta: JsonRpcRequestProcessor,
+        pub meta: JsonRpcRequestProcessor,
     }
 
     impl MinimalServer for MinimalImpl {
@@ -2621,6 +2621,7 @@ pub mod rpc_minimal {
 
             let (full_snapshot_archives_dir, incremental_snapshot_archives_dir) = self
                 .meta
+                .clone()
                 .snapshot_config
                 .map(|snapshot_config| {
                     (
@@ -2747,7 +2748,7 @@ pub mod rpc_bank {
     }
 
     pub struct BankDataImpl {
-        meta: JsonRpcRequestProcessor,
+        pub meta: JsonRpcRequestProcessor,
     }
 
     impl BankDataServer for BankDataImpl {
@@ -2955,7 +2956,7 @@ pub mod rpc_accounts {
     }
 
     pub struct AccountsDataImpl {
-        meta: JsonRpcRequestProcessor,
+        pub meta: JsonRpcRequestProcessor,
     }
 
     impl AccountsDataServer for AccountsDataImpl {
@@ -3095,7 +3096,7 @@ pub mod rpc_accounts_scan {
     }
 
     pub struct AccountsScanImpl {
-        meta: JsonRpcRequestProcessor,
+        pub meta: JsonRpcRequestProcessor,
     }
 
     impl AccountsScanServer for AccountsScanImpl {
@@ -3331,7 +3332,7 @@ pub mod rpc_full {
     }
 
     pub struct FullImpl {
-        meta: JsonRpcRequestProcessor,
+        pub meta: JsonRpcRequestProcessor,
     }
 
     #[jsonrpsee::core::async_trait]
@@ -3501,7 +3502,7 @@ pub mod rpc_full {
             };
 
             _send_transaction(
-                self.meta,
+                &self.meta,
                 signature,
                 wire_transaction,
                 last_valid_block_height,
@@ -3610,7 +3611,7 @@ pub mod rpc_full {
             }
 
             _send_transaction(
-                self.meta,
+                &self.meta,
                 signature,
                 wire_transaction,
                 last_valid_block_height,
@@ -3969,7 +3970,7 @@ pub mod rpc_deprecated_v1_9 {
     }
 
     pub struct DeprecatedV1_9Impl {
-        meta: JsonRpcRequestProcessor,
+        pub meta: JsonRpcRequestProcessor,
     }
 
     impl DeprecatedV1_9Server for DeprecatedV1_9Impl {
@@ -4008,9 +4009,10 @@ pub mod rpc_deprecated_v1_9 {
 
             self.meta
                 .snapshot_config
+                .as_ref()
                 .and_then(|snapshot_config| {
                     snapshot_utils::get_highest_full_snapshot_archive_slot(
-                        snapshot_config.full_snapshot_archives_dir,
+                        &snapshot_config.full_snapshot_archives_dir,
                     )
                 })
                 .ok_or_else(|| RpcCustomError::NoSnapshot.into())
@@ -4069,7 +4071,7 @@ pub mod rpc_deprecated_v1_7 {
     }
 
     pub struct DeprecatedV1_7Impl {
-        meta: JsonRpcRequestProcessor,
+        pub meta: JsonRpcRequestProcessor,
     }
 
     #[jsonrpsee::core::async_trait]
@@ -4210,7 +4212,7 @@ pub mod rpc_obsolete_v1_7 {
     }
 
     pub struct ObsoleteV1_7Impl {
-        meta: JsonRpcRequestProcessor,
+        pub meta: JsonRpcRequestProcessor,
     }
 
     impl ObsoleteV1_7Server for ObsoleteV1_7Impl {

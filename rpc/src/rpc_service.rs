@@ -7,7 +7,6 @@ use jsonrpsee::{
     server::{ServerBuilder, ServerHandle},
     RpcModule,
 };
-use tokio::task::JoinHandle;
 use tower_http::cors::MaxAge;
 
 use crate::request_middleware::{RequestMiddleware, RequestMiddlewareAction};
@@ -66,7 +65,7 @@ const INCREMENTAL_SNAPSHOT_REQUEST_PATH: &str = "/incremental-snapshot.tar.bz2";
 const LARGEST_ACCOUNTS_CACHE_DURATION: u64 = 60 * 60 * 2;
 
 pub struct JsonRpcService {
-    thread_hdl: JoinHandle<()>,
+    thread_hdl: thread::JoinHandle<()>,
 
     #[cfg(test)]
     pub request_processor: JsonRpcRequestProcessor, // Used only by test_rpc_new()...
@@ -506,67 +505,87 @@ impl JsonRpcService {
 
         let (close_handle_sender, close_handle_receiver) = unbounded();
 
-        let thread_hdl = tokio::spawn(async move {
-            let meta = request_processor.clone();
+        let thread_hdl = thread::Builder::new()
+            .name("solJsonRpcSvc".to_string())
+            .spawn(move || {
+                renice_this_thread(rpc_niceness_adj).unwrap();
 
-            let mut module = RpcModule::new(());
+                runtime.block_on(async move {
+                    let meta = request_processor.clone();
 
-            module.merge(MinimalImpl { meta }.into_rpc());
+                    let mut module = RpcModule::new(());
 
-            if full_api {
-                module.merge(rpc_bank::BankDataImpl { meta }.into_rpc());
-                module.merge(rpc_accounts::AccountsDataImpl { meta }.into_rpc());
-                module.merge(rpc_accounts_scan::AccountsScanImpl { meta }.into_rpc());
-                module.merge(rpc_full::FullImpl { meta }.into_rpc());
-                module.merge(rpc_deprecated_v1_7::DeprecatedV1_7Impl { meta }.into_rpc());
-                module.merge(rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta }.into_rpc());
-            }
-            if obsolete_v1_7_api {
-                module.merge(rpc_obsolete_v1_7::ObsoleteV1_7Impl { meta }.into_rpc());
-            }
+                    module.merge(MinimalImpl { meta: meta.clone() }.into_rpc());
 
-            let request_middleware = RpcRequestMiddleware::new(
-                ledger_path,
-                snapshot_config,
-                bank_forks.clone(),
-                health.clone(),
-            );
+                    if full_api {
+                        module.merge(rpc_bank::BankDataImpl { meta: meta.clone() }.into_rpc());
+                        module.merge(
+                            rpc_accounts::AccountsDataImpl { meta: meta.clone() }.into_rpc(),
+                        );
+                        module.merge(
+                            rpc_accounts_scan::AccountsScanImpl { meta: meta.clone() }.into_rpc(),
+                        );
+                        module.merge(rpc_full::FullImpl { meta: meta.clone() }.into_rpc());
+                        module.merge(
+                            rpc_deprecated_v1_7::DeprecatedV1_7Impl { meta: meta.clone() }
+                                .into_rpc(),
+                        );
+                        module.merge(
+                            rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta: meta.clone() }
+                                .into_rpc(),
+                        );
+                    }
 
-            let cors = tower_http::cors::CorsLayer::new()
-                .allow_methods([hyper::Method::POST])
-                .allow_origin(tower_http::cors::Any)
-                .max_age(MaxAge::exact(Duration::from_secs(86400)))
-                .allow_headers([hyper::header::CONTENT_TYPE]);
+                    if obsolete_v1_7_api {
+                        module.merge(
+                            rpc_obsolete_v1_7::ObsoleteV1_7Impl { meta: meta.clone() }.into_rpc(),
+                        );
+                    }
 
-            let middleware = tower::ServiceBuilder::new().layer(cors);
-            //                .layer(request_middleware);
+                    let request_middleware = RpcRequestMiddleware::new(
+                        ledger_path,
+                        snapshot_config,
+                        bank_forks.clone(),
+                        health.clone(),
+                    );
 
-            let server = ServerBuilder::default()
-                .custom_tokio_runtime(runtime.handle().clone())
-                .set_middleware(middleware)
-                .max_request_body_size(max_request_body_size)
-                .build(rpc_addr.clone())
-                .await
-                .expect("Error building server")
-                .start(module);
+                    let cors = tower_http::cors::CorsLayer::new()
+                        .allow_methods([hyper::Method::POST])
+                        .allow_origin(tower_http::cors::Any)
+                        .max_age(MaxAge::exact(Duration::from_secs(86400)))
+                        .allow_headers([hyper::header::CONTENT_TYPE]);
 
-            if let Err(err) = server {
-                warn!(
-                    "JSON RPC service unavailable error: {err:?}. \n\
+                    let middleware = tower::ServiceBuilder::new().layer(cors);
+                    //                .layer(request_middleware);
+
+                    let server = ServerBuilder::default()
+                        //                        .custom_tokio_runtime(runtime.handle().clone())
+                        .set_middleware(middleware)
+                        .max_request_body_size(max_request_body_size)
+                        .build(rpc_addr.clone())
+                        .await
+                        .expect("Error building server")
+                        .start(module);
+
+                    if let Err(err) = server {
+                        warn!(
+                            "JSON RPC service unavailable error: {err:?}. \n\
                            Also, check that port {} is not already in use by another application",
-                    rpc_addr.port()
-                );
-                close_handle_sender.send(Err(err.to_string())).unwrap();
-                return;
-            }
+                            rpc_addr.port()
+                        );
+                        close_handle_sender.send(Err(err.to_string())).unwrap();
+                        return;
+                    }
 
-            let server = server.unwrap();
+                    let server = server.unwrap();
 
-            close_handle_sender.send(Ok(server.clone())).unwrap();
+                    close_handle_sender.send(Ok(server.clone())).unwrap();
 
-            server.stopped().await;
-            exit_bigtable_ledger_upload_service.store(true, Ordering::Relaxed);
-        });
+                    server.stopped().await;
+                    exit_bigtable_ledger_upload_service.store(true, Ordering::Relaxed);
+                });
+            })
+            .unwrap();
 
         let close_handle = close_handle_receiver.recv().unwrap()?;
         let close_handle_ = close_handle.clone();
