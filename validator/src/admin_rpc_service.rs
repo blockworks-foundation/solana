@@ -211,16 +211,10 @@ pub trait AdminRpc {
     ) -> Result<Vec<(String, usize)>>;
 
     #[method(name = "setPublicTpuAddress")]
-    fn set_public_tpu_address(
-        &self,
-        public_tpu_addr: SocketAddr,
-    ) -> Result<()>;
+    fn set_public_tpu_address(&self, public_tpu_addr: SocketAddr) -> Result<()>;
 
     #[method(name = "setPublicTpuForwardsAddress")]
-    fn set_public_tpu_forwards_address(
-        &self,
-        public_tpu_forwards_addr: SocketAddr,
-    ) -> Result<()>;
+    fn set_public_tpu_forwards_address(&self, public_tpu_forwards_addr: SocketAddr) -> Result<()>;
 }
 
 pub struct AdminRpcImpl {
