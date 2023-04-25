@@ -59,6 +59,7 @@ solana-version = { workspace = true }
 solana-vote-program = { workspace = true }
 symlink = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 
 [dev-dependencies]
 solana-account-decoder = { workspace = true }

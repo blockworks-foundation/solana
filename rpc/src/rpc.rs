@@ -119,7 +119,7 @@ pub const MAX_REQUEST_BODY_SIZE: u32 = 50 * (1 << 10); // 50kB
 pub const PERFORMANCE_SAMPLES_LIMIT: usize = 720;
 
 #[inline]
-pub fn invalid_params(err: String) -> ErrorObjectOwned {
+pub fn invalid_params(err: impl Into<String>) -> ErrorObjectOwned {
     ErrorObject::owned(ErrorCode::InvalidParams.code(), err, None::<()>)
 }
 

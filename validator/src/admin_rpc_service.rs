@@ -1,12 +1,12 @@
+use jsonrpsee::{
+    proc_macros::rpc,
+    server::ServerBuilder,
+    types::{error::ErrorCode, ErrorObject},
+};
+use solana_rpc::rpc::{invalid_params, Result};
+
 use {
     crossbeam_channel::Sender,
-    jsonrpc_core::{BoxFuture, ErrorCode, MetaIoHandler, Metadata, Result},
-    jsonrpc_core_client::{transports::ipc, RpcError},
-    jsonrpc_derive::rpc,
-    jsonrpc_ipc_server::{
-        tokio::sync::oneshot::channel as oneshot_channel, RequestContext, ServerBuilder,
-    },
-    jsonrpc_server_utils::tokio,
     log::*,
     serde::{de::Deserializer, Deserialize, Serialize},
     solana_core::{
@@ -33,6 +33,7 @@ use {
         thread::{self, Builder},
         time::{Duration, SystemTime},
     },
+    tokio::sync::oneshot::channel as oneshot_channel,
 };
 
 #[derive(Clone)]
@@ -48,8 +49,6 @@ pub struct AdminRpcRequestMetadata {
     pub rpc_to_plugin_manager_sender: Option<Sender<GeyserPluginManagerRequest>>,
 }
 
-impl Metadata for AdminRpcRequestMetadata {}
-
 impl AdminRpcRequestMetadata {
     fn with_post_init<F, R>(&self, func: F) -> Result<R>
     where
@@ -58,14 +57,12 @@ impl AdminRpcRequestMetadata {
         if let Some(post_init) = self.post_init.read().unwrap().as_ref() {
             func(post_init)
         } else {
-            Err(jsonrpc_core::error::Error::invalid_params(
-                "Retry once validator start up is complete",
-            ))
+            Err(invalid_params("Retry once validator start up is complete"))
         }
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AdminRpcContactInfo {
     pub id: String,
     pub gossip: SocketAddr,
@@ -82,7 +79,7 @@ pub struct AdminRpcContactInfo {
     pub shred_version: u16,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AdminRpcRepairWhitelist {
     pub whitelist: Vec<Pubkey>,
 }
@@ -143,115 +140,96 @@ impl Display for AdminRpcRepairWhitelist {
     }
 }
 
-#[rpc]
+#[rpc(server)]
 pub trait AdminRpc {
-    type Metadata;
+    #[method(name = "exit")]
+    fn exit(&self) -> Result<()>;
 
-    #[rpc(meta, name = "exit")]
-    fn exit(&self, meta: Self::Metadata) -> Result<()>;
+    #[method(name = "reloadPlugin")]
+    async fn reload_plugin(&self, name: String, config_file: String) -> Result<()>;
 
-    #[rpc(meta, name = "reloadPlugin")]
-    fn reload_plugin(
-        &self,
-        meta: Self::Metadata,
-        name: String,
-        config_file: String,
-    ) -> BoxFuture<Result<()>>;
+    #[method(name = "unloadPlugin")]
+    async fn unload_plugin(&self, name: String) -> Result<()>;
 
-    #[rpc(meta, name = "unloadPlugin")]
-    fn unload_plugin(&self, meta: Self::Metadata, name: String) -> BoxFuture<Result<()>>;
+    #[method(name = "loadPlugin")]
+    async fn load_plugin(&self, config_file: String) -> Result<String>;
 
-    #[rpc(meta, name = "loadPlugin")]
-    fn load_plugin(&self, meta: Self::Metadata, config_file: String) -> BoxFuture<Result<String>>;
+    #[method(name = "listPlugins")]
+    async fn list_plugins(&self) -> Result<Vec<String>>;
 
-    #[rpc(meta, name = "listPlugins")]
-    fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>>;
+    #[method(name = "rpcAddress")]
+    fn rpc_addr(&self) -> Result<Option<SocketAddr>>;
 
-    #[rpc(meta, name = "rpcAddress")]
-    fn rpc_addr(&self, meta: Self::Metadata) -> Result<Option<SocketAddr>>;
-
-    #[rpc(name = "setLogFilter")]
+    #[method(name = "setLogFilter")]
     fn set_log_filter(&self, filter: String) -> Result<()>;
 
-    #[rpc(meta, name = "startTime")]
-    fn start_time(&self, meta: Self::Metadata) -> Result<SystemTime>;
+    #[method(name = "startTime")]
+    fn start_time(&self) -> Result<SystemTime>;
 
-    #[rpc(meta, name = "startProgress")]
-    fn start_progress(&self, meta: Self::Metadata) -> Result<ValidatorStartProgress>;
+    #[method(name = "startProgress")]
+    fn start_progress(&self) -> Result<ValidatorStartProgress>;
 
-    #[rpc(meta, name = "addAuthorizedVoter")]
-    fn add_authorized_voter(&self, meta: Self::Metadata, keypair_file: String) -> Result<()>;
+    #[method(name = "addAuthorizedVoter")]
+    fn add_authorized_voter(&self, keypair_file: String) -> Result<()>;
 
-    #[rpc(meta, name = "addAuthorizedVoterFromBytes")]
-    fn add_authorized_voter_from_bytes(&self, meta: Self::Metadata, keypair: Vec<u8>)
+    #[method(name = "addAuthorizedVoterFromBytes")]
+    fn add_authorized_voter_from_bytes(&self, keypair: Vec<u8>) -> Result<()>;
+
+    #[method(name = "removeAllAuthorizedVoters")]
+    fn remove_all_authorized_voters(&self) -> Result<()>;
+
+    #[method(name = "setIdentity")]
+    fn set_identity(&self, keypair_file: String, require_tower: bool) -> Result<()>;
+
+    #[method(name = "setIdentityFromBytes")]
+    fn set_identity_from_bytes(&self, identity_keypair: Vec<u8>, require_tower: bool)
         -> Result<()>;
 
-    #[rpc(meta, name = "removeAllAuthorizedVoters")]
-    fn remove_all_authorized_voters(&self, meta: Self::Metadata) -> Result<()>;
+    #[method(name = "setStakedNodesOverrides")]
+    fn set_staked_nodes_overrides(&self, path: String) -> Result<()>;
 
-    #[rpc(meta, name = "setIdentity")]
-    fn set_identity(
-        &self,
-        meta: Self::Metadata,
-        keypair_file: String,
-        require_tower: bool,
-    ) -> Result<()>;
+    #[method(name = "contactInfo")]
+    fn contact_info(&self) -> Result<AdminRpcContactInfo>;
 
-    #[rpc(meta, name = "setIdentityFromBytes")]
-    fn set_identity_from_bytes(
-        &self,
-        meta: Self::Metadata,
-        identity_keypair: Vec<u8>,
-        require_tower: bool,
-    ) -> Result<()>;
+    #[method(name = "repairWhitelist")]
+    fn repair_whitelist(&self) -> Result<AdminRpcRepairWhitelist>;
 
-    #[rpc(meta, name = "setStakedNodesOverrides")]
-    fn set_staked_nodes_overrides(&self, meta: Self::Metadata, path: String) -> Result<()>;
+    #[method(name = "setRepairWhitelist")]
+    fn set_repair_whitelist(&self, whitelist: Vec<Pubkey>) -> Result<()>;
 
-    #[rpc(meta, name = "contactInfo")]
-    fn contact_info(&self, meta: Self::Metadata) -> Result<AdminRpcContactInfo>;
-
-    #[rpc(meta, name = "repairWhitelist")]
-    fn repair_whitelist(&self, meta: Self::Metadata) -> Result<AdminRpcRepairWhitelist>;
-
-    #[rpc(meta, name = "setRepairWhitelist")]
-    fn set_repair_whitelist(&self, meta: Self::Metadata, whitelist: Vec<Pubkey>) -> Result<()>;
-
-    #[rpc(meta, name = "getSecondaryIndexKeySize")]
+    #[method(name = "getSecondaryIndexKeySize")]
     fn get_secondary_index_key_size(
         &self,
-        meta: Self::Metadata,
         pubkey_str: String,
     ) -> Result<HashMap<RpcAccountIndex, usize>>;
 
-    #[rpc(meta, name = "getLargestIndexKeys")]
+    #[method(name = "getLargestIndexKeys")]
     fn get_largest_index_keys(
         &self,
-        meta: Self::Metadata,
         secondary_index: RpcAccountIndex,
         max_entries: usize,
     ) -> Result<Vec<(String, usize)>>;
 
-    #[rpc(meta, name = "setPublicTpuAddress")]
+    #[method(name = "setPublicTpuAddress")]
     fn set_public_tpu_address(
         &self,
-        meta: Self::Metadata,
         public_tpu_addr: SocketAddr,
     ) -> Result<()>;
 
-    #[rpc(meta, name = "setPublicTpuForwardsAddress")]
+    #[method(name = "setPublicTpuForwardsAddress")]
     fn set_public_tpu_forwards_address(
         &self,
-        meta: Self::Metadata,
         public_tpu_forwards_addr: SocketAddr,
     ) -> Result<()>;
 }
 
-pub struct AdminRpcImpl;
-impl AdminRpc for AdminRpcImpl {
-    type Metadata = AdminRpcRequestMetadata;
+pub struct AdminRpcImpl {
+    pub meta: AdminRpcRequestMetadata,
+}
 
-    fn exit(&self, meta: Self::Metadata) -> Result<()> {
+#[jsonrpsee::core::async_trait]
+impl AdminRpcServer for AdminRpcImpl {
+    fn exit(&self) -> Result<()> {
         debug!("exit admin rpc request received");
 
         thread::Builder::new()
@@ -262,7 +240,7 @@ impl AdminRpc for AdminRpcImpl {
                 thread::sleep(Duration::from_millis(100));
 
                 warn!("validator exit requested");
-                meta.validator_exit.write().unwrap().exit();
+                self.meta.validator_exit.write().unwrap().exit();
 
                 // TODO: Debug why Exit doesn't always cause the validator to fully exit
                 // (rocksdb background processing or some other stuck thread perhaps?).
@@ -276,124 +254,111 @@ impl AdminRpc for AdminRpcImpl {
         Ok(())
     }
 
-    fn reload_plugin(
-        &self,
-        meta: Self::Metadata,
-        name: String,
-        config_file: String,
-    ) -> BoxFuture<Result<()>> {
-        Box::pin(async move {
-            // Construct channel for plugin to respond to this particular rpc request instance
-            let (response_sender, response_receiver) = oneshot_channel();
+    async fn reload_plugin(&self, name: String, config_file: String) -> Result<()> {
+        // Construct channel for plugin to respond to this particular rpc request instance
+        let (response_sender, response_receiver) = oneshot_channel();
 
-            // Send request to plugin manager if there is a geyser service
-            if let Some(ref rpc_to_manager_sender) = meta.rpc_to_plugin_manager_sender {
-                rpc_to_manager_sender
-                    .send(GeyserPluginManagerRequest::ReloadPlugin {
-                        name,
-                        config_file,
-                        response_sender,
-                    })
-                    .expect("GeyerPluginService should never drop request receiver");
-            } else {
-                return Err(jsonrpc_core::Error {
-                    code: ErrorCode::InvalidRequest,
-                    message: "No geyser plugin service".to_string(),
-                    data: None,
-                });
-            }
+        // Send request to plugin manager if there is a geyser service
+        if let Some(ref rpc_to_manager_sender) = self.meta.rpc_to_plugin_manager_sender {
+            rpc_to_manager_sender
+                .send(GeyserPluginManagerRequest::ReloadPlugin {
+                    name,
+                    config_file,
+                    response_sender,
+                })
+                .expect("GeyerPluginService should never drop request receiver");
+        } else {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidRequest.code(),
+                "No geyser plugin service".to_string(),
+                None::<()>,
+            ));
+        }
 
-            // Await response from plugin manager
-            response_receiver
-                .await
-                .expect("GeyerPluginService's oneshot sender shouldn't drop early")
-        })
+        // Await response from plugin manager
+        response_receiver
+            .await
+            .expect("GeyerPluginService's oneshot sender shouldn't drop early")
     }
 
-    fn load_plugin(&self, meta: Self::Metadata, config_file: String) -> BoxFuture<Result<String>> {
-        Box::pin(async move {
-            // Construct channel for plugin to respond to this particular rpc request instance
-            let (response_sender, response_receiver) = oneshot_channel();
+    async fn load_plugin(&self, config_file: String) -> Result<String> {
+        // Construct channel for plugin to respond to this particular rpc request instance
+        let (response_sender, response_receiver) = oneshot_channel();
 
-            // Send request to plugin manager if there is a geyser service
-            if let Some(ref rpc_to_manager_sender) = meta.rpc_to_plugin_manager_sender {
-                rpc_to_manager_sender
-                    .send(GeyserPluginManagerRequest::LoadPlugin {
-                        config_file,
-                        response_sender,
-                    })
-                    .expect("GeyerPluginService should never drop request receiver");
-            } else {
-                return Err(jsonrpc_core::Error {
-                    code: ErrorCode::InvalidRequest,
-                    message: "No geyser plugin service".to_string(),
-                    data: None,
-                });
-            }
+        // Send request to plugin manager if there is a geyser service
+        if let Some(ref rpc_to_manager_sender) = self.meta.rpc_to_plugin_manager_sender {
+            rpc_to_manager_sender
+                .send(GeyserPluginManagerRequest::LoadPlugin {
+                    config_file,
+                    response_sender,
+                })
+                .expect("GeyerPluginService should never drop request receiver");
+        } else {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidRequest.code(),
+                "No geyser plugin service".to_string(),
+                None::<()>,
+            ));
+        }
 
-            // Await response from plugin manager
-            response_receiver
-                .await
-                .expect("GeyerPluginService's oneshot sender shouldn't drop early")
-        })
+        // Await response from plugin manager
+        response_receiver
+            .await
+            .expect("GeyerPluginService's oneshot sender shouldn't drop early")
     }
 
-    fn unload_plugin(&self, meta: Self::Metadata, name: String) -> BoxFuture<Result<()>> {
-        Box::pin(async move {
-            // Construct channel for plugin to respond to this particular rpc request instance
-            let (response_sender, response_receiver) = oneshot_channel();
+    async fn unload_plugin(&self, name: String) -> Result<()> {
+        // Construct channel for plugin to respond to this particular rpc request instance
+        let (response_sender, response_receiver) = oneshot_channel();
 
-            // Send request to plugin manager if there is a geyser service
-            if let Some(ref rpc_to_manager_sender) = meta.rpc_to_plugin_manager_sender {
-                rpc_to_manager_sender
-                    .send(GeyserPluginManagerRequest::UnloadPlugin {
-                        name,
-                        response_sender,
-                    })
-                    .expect("GeyerPluginService should never drop request receiver");
-            } else {
-                return Err(jsonrpc_core::Error {
-                    code: ErrorCode::InvalidRequest,
-                    message: "No geyser plugin service".to_string(),
-                    data: None,
-                });
-            }
+        // Send request to plugin manager if there is a geyser service
+        if let Some(ref rpc_to_manager_sender) = self.meta.rpc_to_plugin_manager_sender {
+            rpc_to_manager_sender
+                .send(GeyserPluginManagerRequest::UnloadPlugin {
+                    name,
+                    response_sender,
+                })
+                .expect("GeyerPluginService should never drop request receiver");
+        } else {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidRequest.code(),
+                "No geyser plugin service".to_string(),
+                None::<()>,
+            ));
+        }
 
-            // Await response from plugin manager
-            response_receiver
-                .await
-                .expect("GeyerPluginService's oneshot sender shouldn't drop early")
-        })
+        // Await response from plugin manager
+        response_receiver
+            .await
+            .expect("GeyerPluginService's oneshot sender shouldn't drop early")
     }
 
-    fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>> {
-        Box::pin(async move {
-            // Construct channel for plugin to respond to this particular rpc request instance
-            let (response_sender, response_receiver) = oneshot_channel();
+    async fn list_plugins(&self) -> Result<Vec<String>> {
+        // Construct channel for plugin to respond to this particular rpc request instance
+        let (response_sender, response_receiver) = oneshot_channel();
 
-            // Send request to plugin manager
-            if let Some(ref rpc_to_manager_sender) = meta.rpc_to_plugin_manager_sender {
-                rpc_to_manager_sender
-                    .send(GeyserPluginManagerRequest::ListPlugins { response_sender })
-                    .expect("GeyerPluginService should never drop request receiver");
-            } else {
-                return Err(jsonrpc_core::Error {
-                    code: ErrorCode::InvalidRequest,
-                    message: "No geyser plugin service".to_string(),
-                    data: None,
-                });
-            }
+        // Send request to plugin manager
+        if let Some(ref rpc_to_manager_sender) = self.meta.rpc_to_plugin_manager_sender {
+            rpc_to_manager_sender
+                .send(GeyserPluginManagerRequest::ListPlugins { response_sender })
+                .expect("GeyerPluginService should never drop request receiver");
+        } else {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidRequest.code(),
+                "No geyser plugin service".to_string(),
+                None::<()>,
+            ));
+        }
 
-            // Await response from plugin manager
-            response_receiver
-                .await
-                .expect("GeyerPluginService's oneshot sender shouldn't drop early")
-        })
+        // Await response from plugin manager
+        response_receiver
+            .await
+            .expect("GeyerPluginService's oneshot sender shouldn't drop early")
     }
 
-    fn rpc_addr(&self, meta: Self::Metadata) -> Result<Option<SocketAddr>> {
+    fn rpc_addr(&self) -> Result<Option<SocketAddr>> {
         debug!("rpc_addr admin rpc request received");
-        Ok(meta.rpc_addr)
+        Ok(self.meta.rpc_addr)
     }
 
     fn set_log_filter(&self, filter: String) -> Result<()> {
@@ -402,92 +367,82 @@ impl AdminRpc for AdminRpcImpl {
         Ok(())
     }
 
-    fn start_time(&self, meta: Self::Metadata) -> Result<SystemTime> {
+    fn start_time(&self) -> Result<SystemTime> {
         debug!("start_time admin rpc request received");
-        Ok(meta.start_time)
+        Ok(self.meta.start_time)
     }
 
-    fn start_progress(&self, meta: Self::Metadata) -> Result<ValidatorStartProgress> {
+    fn start_progress(&self) -> Result<ValidatorStartProgress> {
         debug!("start_progress admin rpc request received");
-        Ok(*meta.start_progress.read().unwrap())
+        Ok(*self.meta.start_progress.read().unwrap())
     }
 
-    fn add_authorized_voter(&self, meta: Self::Metadata, keypair_file: String) -> Result<()> {
+    fn add_authorized_voter(&self, keypair_file: String) -> Result<()> {
         debug!("add_authorized_voter request received");
 
-        let authorized_voter = read_keypair_file(keypair_file)
-            .map_err(|err| jsonrpc_core::error::Error::invalid_params(format!("{err}")))?;
+        let authorized_voter =
+            read_keypair_file(keypair_file).map_err(|err| invalid_params(format!("{err}")))?;
 
-        AdminRpcImpl::add_authorized_voter_keypair(meta, authorized_voter)
+        AdminRpcImpl::add_authorized_voter_keypair(&self.meta, authorized_voter)
     }
 
-    fn add_authorized_voter_from_bytes(
-        &self,
-        meta: Self::Metadata,
-        keypair: Vec<u8>,
-    ) -> Result<()> {
+    fn add_authorized_voter_from_bytes(&self, keypair: Vec<u8>) -> Result<()> {
         debug!("add_authorized_voter_from_bytes request received");
 
         let authorized_voter = Keypair::from_bytes(&keypair).map_err(|err| {
-            jsonrpc_core::error::Error::invalid_params(format!(
+            invalid_params(format!(
                 "Failed to read authorized voter keypair from provided byte array: {err}"
             ))
         })?;
 
-        AdminRpcImpl::add_authorized_voter_keypair(meta, authorized_voter)
+        AdminRpcImpl::add_authorized_voter_keypair(&self.meta, authorized_voter)
     }
 
-    fn remove_all_authorized_voters(&self, meta: Self::Metadata) -> Result<()> {
+    fn remove_all_authorized_voters(&self) -> Result<()> {
         debug!("remove_all_authorized_voters received");
-        meta.authorized_voter_keypairs.write().unwrap().clear();
+        self.meta.authorized_voter_keypairs.write().unwrap().clear();
         Ok(())
     }
 
-    fn set_identity(
-        &self,
-        meta: Self::Metadata,
-        keypair_file: String,
-        require_tower: bool,
-    ) -> Result<()> {
+    fn set_identity(&self, keypair_file: String, require_tower: bool) -> Result<()> {
         debug!("set_identity request received");
 
         let identity_keypair = read_keypair_file(&keypair_file).map_err(|err| {
-            jsonrpc_core::error::Error::invalid_params(format!(
+            invalid_params(format!(
                 "Failed to read identity keypair from {keypair_file}: {err}"
             ))
         })?;
 
-        AdminRpcImpl::set_identity_keypair(meta, identity_keypair, require_tower)
+        AdminRpcImpl::set_identity_keypair(&self.meta, identity_keypair, require_tower)
     }
 
     fn set_identity_from_bytes(
         &self,
-        meta: Self::Metadata,
         identity_keypair: Vec<u8>,
         require_tower: bool,
     ) -> Result<()> {
         debug!("set_identity_from_bytes request received");
 
         let identity_keypair = Keypair::from_bytes(&identity_keypair).map_err(|err| {
-            jsonrpc_core::error::Error::invalid_params(format!(
+            invalid_params(format!(
                 "Failed to read identity keypair from provided byte array: {err}"
             ))
         })?;
 
-        AdminRpcImpl::set_identity_keypair(meta, identity_keypair, require_tower)
+        AdminRpcImpl::set_identity_keypair(&self.meta, identity_keypair, require_tower)
     }
 
-    fn set_staked_nodes_overrides(&self, meta: Self::Metadata, path: String) -> Result<()> {
+    fn set_staked_nodes_overrides(&self, path: String) -> Result<()> {
         let loaded_config = load_staked_nodes_overrides(&path)
             .map_err(|err| {
                 error!(
                     "Failed to load staked nodes overrides from {}: {}",
                     &path, err
                 );
-                jsonrpc_core::error::Error::internal_error()
+                ErrorObject::from(ErrorCode::InternalError)
             })?
             .staked_map_id;
-        let mut write_staked_nodes = meta.staked_nodes_overrides.write().unwrap();
+        let mut write_staked_nodes = self.meta.staked_nodes_overrides.write().unwrap();
         write_staked_nodes.clear();
         write_staked_nodes.extend(loaded_config.into_iter());
         info!("Staked nodes overrides loaded from {}", path);
@@ -495,14 +450,15 @@ impl AdminRpc for AdminRpcImpl {
         Ok(())
     }
 
-    fn contact_info(&self, meta: Self::Metadata) -> Result<AdminRpcContactInfo> {
-        meta.with_post_init(|post_init| Ok(post_init.cluster_info.my_contact_info().into()))
+    fn contact_info(&self) -> Result<AdminRpcContactInfo> {
+        self.meta
+            .with_post_init(|post_init| Ok(post_init.cluster_info.my_contact_info().into()))
     }
 
-    fn repair_whitelist(&self, meta: Self::Metadata) -> Result<AdminRpcRepairWhitelist> {
+    fn repair_whitelist(&self) -> Result<AdminRpcRepairWhitelist> {
         debug!("repair_whitelist request received");
 
-        meta.with_post_init(|post_init| {
+        self.meta.with_post_init(|post_init| {
             let whitelist: Vec<_> = post_init
                 .repair_whitelist
                 .read()
@@ -514,11 +470,11 @@ impl AdminRpc for AdminRpcImpl {
         })
     }
 
-    fn set_repair_whitelist(&self, meta: Self::Metadata, whitelist: Vec<Pubkey>) -> Result<()> {
+    fn set_repair_whitelist(&self, whitelist: Vec<Pubkey>) -> Result<()> {
         debug!("set_repair_whitelist request received");
 
         let whitelist: HashSet<Pubkey> = whitelist.into_iter().collect();
-        meta.with_post_init(|post_init| {
+        self.meta.with_post_init(|post_init| {
             *post_init.repair_whitelist.write().unwrap() = whitelist;
             warn!(
                 "Repair whitelist set to {:?}",
@@ -530,7 +486,6 @@ impl AdminRpc for AdminRpcImpl {
 
     fn get_secondary_index_key_size(
         &self,
-        meta: Self::Metadata,
         pubkey_str: String,
     ) -> Result<HashMap<RpcAccountIndex, usize>> {
         debug!(
@@ -538,7 +493,7 @@ impl AdminRpc for AdminRpcImpl {
             pubkey_str
         );
         let index_key = verify_pubkey(&pubkey_str)?;
-        meta.with_post_init(|post_init| {
+        self.meta.with_post_init(|post_init| {
             let bank = post_init.bank_forks.read().unwrap().root_bank();
 
             // Take ref to enabled AccountSecondaryIndexes
@@ -582,7 +537,6 @@ impl AdminRpc for AdminRpcImpl {
 
     fn get_largest_index_keys(
         &self,
-        meta: Self::Metadata,
         secondary_index: RpcAccountIndex,
         max_entries: usize,
     ) -> Result<Vec<(String, usize)>> {
@@ -591,7 +545,7 @@ impl AdminRpc for AdminRpcImpl {
             max_entries
         );
         let secondary_index = account_index_from_rpc_account_index(&secondary_index);
-        meta.with_post_init(|post_init| {
+        self.meta.with_post_init(|post_init| {
             let bank = post_init.bank_forks.read().unwrap().root_bank();
             let enabled_account_indexes = &bank.accounts().accounts_db.account_indexes;
             if enabled_account_indexes.is_empty() {
@@ -608,14 +562,10 @@ impl AdminRpc for AdminRpcImpl {
         })
     }
 
-    fn set_public_tpu_address(
-        &self,
-        meta: Self::Metadata,
-        public_tpu_addr: SocketAddr,
-    ) -> Result<()> {
+    fn set_public_tpu_address(&self, public_tpu_addr: SocketAddr) -> Result<()> {
         debug!("set_public_tpu_address rpc request received: {public_tpu_addr}");
 
-        meta.with_post_init(|post_init| {
+        self.meta.with_post_init(|post_init| {
             post_init
                 .cluster_info
                 .my_contact_info()
@@ -634,7 +584,7 @@ impl AdminRpc for AdminRpcImpl {
                 .set_tpu(public_tpu_addr)
                 .map_err(|err| {
                     error!("Failed to set public TPU address to {public_tpu_addr}: {err}");
-                    jsonrpc_core::error::Error::internal_error()
+                    ErrorObject::from(ErrorCode::InternalError)
                 })?;
             let my_contact_info = post_init.cluster_info.my_contact_info();
             warn!(
@@ -687,7 +637,7 @@ impl AdminRpc for AdminRpcImpl {
 
 impl AdminRpcImpl {
     fn add_authorized_voter_keypair(
-        meta: AdminRpcRequestMetadata,
+        meta: &AdminRpcRequestMetadata,
         authorized_voter: Keypair,
     ) -> Result<()> {
         let mut authorized_voter_keypairs = meta.authorized_voter_keypairs.write().unwrap();
@@ -696,9 +646,7 @@ impl AdminRpcImpl {
             .iter()
             .any(|x| x.pubkey() == authorized_voter.pubkey())
         {
-            Err(jsonrpc_core::error::Error::invalid_params(
-                "Authorized voter already present",
-            ))
+            Err(invalid_params("Authorized voter already present"))
         } else {
             authorized_voter_keypairs.push(Arc::new(authorized_voter));
             Ok(())
@@ -706,7 +654,7 @@ impl AdminRpcImpl {
     }
 
     fn set_identity_keypair(
-        meta: AdminRpcRequestMetadata,
+        meta: &AdminRpcRequestMetadata,
         identity_keypair: Keypair,
         require_tower: bool,
     ) -> Result<()> {
@@ -714,7 +662,7 @@ impl AdminRpcImpl {
             if require_tower {
                 let _ = Tower::restore(meta.tower_storage.as_ref(), &identity_keypair.pubkey())
                     .map_err(|err| {
-                        jsonrpc_core::error::Error::invalid_params(format!(
+                        invalid_params(format!(
                             "Unable to load tower file for identity {}: {}",
                             identity_keypair.pubkey(),
                             err
@@ -749,46 +697,46 @@ fn account_index_from_rpc_account_index(rpc_account_index: &RpcAccountIndex) -> 
 }
 
 // Start the Admin RPC interface
-pub fn run(ledger_path: &Path, metadata: AdminRpcRequestMetadata) {
+pub fn run(ledger_path: &Path, meta: &AdminRpcRequestMetadata) {
     let admin_rpc_path = admin_rpc_path(ledger_path);
 
-    let event_loop = tokio::runtime::Builder::new_multi_thread()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .thread_name("solAdminRpcEl")
         .worker_threads(3) // Three still seems like a lot, and better than the default of available core count
         .enable_all()
         .build()
-        .unwrap();
+        .expect("AdminRpc Runtime");
 
     Builder::new()
         .name("solAdminRpc".to_string())
         .spawn(move || {
-            let mut io = MetaIoHandler::default();
-            io.extend_with(AdminRpcImpl.to_delegate());
+            runtime.block_on(async move {
+                let validator_exit = meta.validator_exit.clone();
 
-            let validator_exit = metadata.validator_exit.clone();
-            let server = ServerBuilder::with_meta_extractor(io, move |_req: &RequestContext| {
-                metadata.clone()
-            })
-            .event_loop_executor(event_loop.handle().clone())
-            .start(&format!("{}", admin_rpc_path.display()));
+                let rpc = AdminRpcImpl { meta: meta.clone() }.into_rpc();
+                let server = ServerBuilder::default()
+                    .build(format!("{}", admin_rpc_path.display()))
+                    .await
+                    .expect("Error building admin rpc server")
+                    .start(rpc);
 
-            match server {
-                Err(err) => {
+                if let Err(err) = server {
                     warn!("Unable to start admin rpc service: {:?}", err);
+                    return;
                 }
-                Ok(server) => {
-                    info!("started admin rpc service!");
-                    let close_handle = server.close_handle();
-                    validator_exit
-                        .write()
-                        .unwrap()
-                        .register_exit(Box::new(move || {
-                            close_handle.close();
-                        }));
 
-                    server.wait();
-                }
-            }
+                let server_handle = server.unwrap();
+                info!("Started admin rpc service!");
+
+                validator_exit
+                    .write()
+                    .unwrap()
+                    .register_exit(Box::new(move || {
+                        server_handle.stop().unwrap();
+                    }));
+
+                server_handle.stopped().await;
+            });
         })
         .unwrap();
 }
@@ -826,8 +774,8 @@ pub async fn connect(ledger_path: &Path) -> std::result::Result<gen_client::Clie
     }
 }
 
-pub fn runtime() -> jsonrpc_server_utils::tokio::runtime::Runtime {
-    jsonrpc_server_utils::tokio::runtime::Runtime::new().expect("new tokio runtime")
+pub fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Runtime::new().expect("new tokio runtime")
 }
 
 #[derive(Default, Deserialize, Clone)]
@@ -864,6 +812,8 @@ pub fn load_staked_nodes_overrides(
 
 #[cfg(test)]
 mod tests {
+    use jsonrpsee::RpcModule;
+
     use {
         super::*,
         rand::{distributions::Uniform, thread_rng, Rng},
@@ -898,7 +848,7 @@ mod tests {
     }
 
     struct RpcHandler {
-        io: MetaIoHandler<AdminRpcRequestMetadata>,
+        io: RpcModule<()>,
         meta: AdminRpcRequestMetadata,
         bank_forks: Arc<RwLock<BankForks>>,
     }
@@ -943,11 +893,9 @@ mod tests {
                 staked_nodes_overrides: Arc::new(RwLock::new(HashMap::new())),
                 rpc_to_plugin_manager_sender: None,
             };
-            let mut io = MetaIoHandler::default();
-            io.extend_with(AdminRpcImpl.to_delegate());
 
             Self {
-                io,
+                io: AdminRpcImpl { meta }.into_rpc(),
                 meta,
                 bank_forks,
             }
