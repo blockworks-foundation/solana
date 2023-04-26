@@ -1,4 +1,5 @@
 use jsonrpsee::{
+    http_client::{transport::HttpBackend, HttpClient, HttpClientBuilder},
     proc_macros::rpc,
     server::ServerBuilder,
     types::{error::ErrorCode, ErrorObject},
@@ -140,81 +141,115 @@ impl Display for AdminRpcRepairWhitelist {
     }
 }
 
-#[rpc(server)]
+#[rpc(server, client)]
 pub trait AdminRpc {
     #[method(name = "exit")]
-    fn exit(&self) -> Result<()>;
+    fn exit(&self) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "reloadPlugin")]
-    async fn reload_plugin(&self, name: String, config_file: String) -> Result<()>;
+    async fn reload_plugin(
+        &self,
+        name: String,
+        config_file: String,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "unloadPlugin")]
-    async fn unload_plugin(&self, name: String) -> Result<()>;
+    async fn unload_plugin(&self, name: String) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "loadPlugin")]
-    async fn load_plugin(&self, config_file: String) -> Result<String>;
+    async fn load_plugin(
+        &self,
+        config_file: String,
+    ) -> std::result::Result<String, ErrorObject<'static>>;
 
     #[method(name = "listPlugins")]
-    async fn list_plugins(&self) -> Result<Vec<String>>;
+    async fn list_plugins(&self) -> std::result::Result<Vec<String>, ErrorObject<'static>>;
 
     #[method(name = "rpcAddress")]
-    fn rpc_addr(&self) -> Result<Option<SocketAddr>>;
+    fn rpc_addr(&self) -> std::result::Result<Option<SocketAddr>, ErrorObject<'static>>;
 
     #[method(name = "setLogFilter")]
-    fn set_log_filter(&self, filter: String) -> Result<()>;
+    fn set_log_filter(&self, filter: String) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "startTime")]
-    fn start_time(&self) -> Result<SystemTime>;
+    fn start_time(&self) -> std::result::Result<SystemTime, ErrorObject<'static>>;
 
     #[method(name = "startProgress")]
-    fn start_progress(&self) -> Result<ValidatorStartProgress>;
+    fn start_progress(&self) -> std::result::Result<ValidatorStartProgress, ErrorObject<'static>>;
 
     #[method(name = "addAuthorizedVoter")]
-    fn add_authorized_voter(&self, keypair_file: String) -> Result<()>;
+    fn add_authorized_voter(
+        &self,
+        keypair_file: String,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "addAuthorizedVoterFromBytes")]
-    fn add_authorized_voter_from_bytes(&self, keypair: Vec<u8>) -> Result<()>;
+    fn add_authorized_voter_from_bytes(
+        &self,
+        keypair: Vec<u8>,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "removeAllAuthorizedVoters")]
-    fn remove_all_authorized_voters(&self) -> Result<()>;
+    fn remove_all_authorized_voters(&self) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "setIdentity")]
-    fn set_identity(&self, keypair_file: String, require_tower: bool) -> Result<()>;
+    fn set_identity(
+        &self,
+        keypair_file: String,
+        require_tower: bool,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "setIdentityFromBytes")]
-    fn set_identity_from_bytes(&self, identity_keypair: Vec<u8>, require_tower: bool)
-        -> Result<()>;
+    fn set_identity_from_bytes(
+        &self,
+        identity_keypair: Vec<u8>,
+        require_tower: bool,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "setStakedNodesOverrides")]
-    fn set_staked_nodes_overrides(&self, path: String) -> Result<()>;
+    fn set_staked_nodes_overrides(
+        &self,
+        path: String,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "contactInfo")]
-    fn contact_info(&self) -> Result<AdminRpcContactInfo>;
+    fn contact_info(&self) -> std::result::Result<AdminRpcContactInfo, ErrorObject<'static>>;
 
     #[method(name = "repairWhitelist")]
-    fn repair_whitelist(&self) -> Result<AdminRpcRepairWhitelist>;
+    fn repair_whitelist(
+        &self,
+    ) -> std::result::Result<AdminRpcRepairWhitelist, ErrorObject<'static>>;
 
     #[method(name = "setRepairWhitelist")]
-    fn set_repair_whitelist(&self, whitelist: Vec<Pubkey>) -> Result<()>;
+    fn set_repair_whitelist(
+        &self,
+        whitelist: Vec<Pubkey>,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "getSecondaryIndexKeySize")]
     fn get_secondary_index_key_size(
         &self,
         pubkey_str: String,
-    ) -> Result<HashMap<RpcAccountIndex, usize>>;
+    ) -> std::result::Result<HashMap<RpcAccountIndex, usize>, ErrorObject<'static>>;
 
     #[method(name = "getLargestIndexKeys")]
     fn get_largest_index_keys(
         &self,
         secondary_index: RpcAccountIndex,
         max_entries: usize,
-    ) -> Result<Vec<(String, usize)>>;
+    ) -> std::result::Result<Vec<(String, usize)>, ErrorObject<'static>>;
 
     #[method(name = "setPublicTpuAddress")]
-    fn set_public_tpu_address(&self, public_tpu_addr: SocketAddr) -> Result<()>;
+    fn set_public_tpu_address(
+        &self,
+        public_tpu_addr: SocketAddr,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
     #[method(name = "setPublicTpuForwardsAddress")]
-    fn set_public_tpu_forwards_address(&self, public_tpu_forwards_addr: SocketAddr) -> Result<()>;
+    fn set_public_tpu_forwards_address(
+        &self,
+        public_tpu_forwards_addr: SocketAddr,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 }
 
 pub struct AdminRpcImpl {
@@ -752,7 +787,7 @@ fn admin_rpc_path(ledger_path: &Path) -> PathBuf {
 }
 
 // Connect to the Admin RPC interface
-pub async fn connect(ledger_path: &Path) -> std::result::Result<gen_client::Client, RpcError> {
+pub async fn connect(ledger_path: &Path) -> std::result::Result<HttpClient<HttpBackend>, RpcError> {
     let admin_rpc_path = admin_rpc_path(ledger_path);
     if !admin_rpc_path.exists() {
         Err(RpcError::Client(format!(
@@ -760,7 +795,7 @@ pub async fn connect(ledger_path: &Path) -> std::result::Result<gen_client::Clie
             admin_rpc_path.display()
         )))
     } else {
-        ipc::connect::<_, gen_client::Client>(&format!("{}", admin_rpc_path.display())).await
+        Ok(HttpClientBuilder::default().build(&format!("{}", admin_rpc_path.display()))?)
     }
 }
 
