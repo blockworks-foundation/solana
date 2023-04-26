@@ -571,7 +571,7 @@ impl AdminRpcServer for AdminRpcImpl {
                         See help for --restricted-repair-only-mode for more information. \
                         {err}"
                     );
-                    jsonrpc_core::error::Error::internal_error()
+                    ErrorObject::from(ErrorCode::InternalError)
                 })?;
             post_init
                 .cluster_info
@@ -590,14 +590,10 @@ impl AdminRpcServer for AdminRpcImpl {
         })
     }
 
-    fn set_public_tpu_forwards_address(
-        &self,
-        meta: Self::Metadata,
-        public_tpu_forwards_addr: SocketAddr,
-    ) -> Result<()> {
+    fn set_public_tpu_forwards_address(&self, public_tpu_forwards_addr: SocketAddr) -> Result<()> {
         debug!("set_public_tpu_forwards_address rpc request received: {public_tpu_forwards_addr}");
 
-        meta.with_post_init(|post_init| {
+        self.meta.with_post_init(|post_init| {
             post_init
                 .cluster_info
                 .my_contact_info()
@@ -609,14 +605,14 @@ impl AdminRpcServer for AdminRpcImpl {
                         See help for --restricted-repair-only-mode for more information. \
                         {err}"
                     );
-                    jsonrpc_core::error::Error::internal_error()
+                    ErrorObject::from(ErrorCode::InternalError)
                 })?;
             post_init
                 .cluster_info
                 .set_tpu_forwards(public_tpu_forwards_addr)
                 .map_err(|err| {
                     error!("Failed to set public TPU address to {public_tpu_forwards_addr}: {err}");
-                    jsonrpc_core::error::Error::internal_error()
+                    ErrorObject::from(ErrorCode::InternalError)
                 })?;
             let my_contact_info = post_init.cluster_info.my_contact_info();
             warn!(
