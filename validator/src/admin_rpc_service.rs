@@ -1,4 +1,5 @@
 use jsonrpsee::{
+    core::Error,
     http_client::{transport::HttpBackend, HttpClient, HttpClientBuilder},
     proc_macros::rpc,
     server::ServerBuilder,
@@ -261,6 +262,7 @@ impl AdminRpcServer for AdminRpcImpl {
     fn exit(&self) -> Result<()> {
         debug!("exit admin rpc request received");
 
+        let validator_exit = self.meta.validator_exit.clone();
         thread::Builder::new()
             .name("solProcessExit".into())
             .spawn(move || {
@@ -269,7 +271,7 @@ impl AdminRpcServer for AdminRpcImpl {
                 thread::sleep(Duration::from_millis(100));
 
                 warn!("validator exit requested");
-                self.meta.validator_exit.write().unwrap().exit();
+                validator_exit.write().unwrap().exit();
 
                 // TODO: Debug why Exit doesn't always cause the validator to fully exit
                 // (rocksdb background processing or some other stuck thread perhaps?).
@@ -722,7 +724,7 @@ fn account_index_from_rpc_account_index(rpc_account_index: &RpcAccountIndex) -> 
 }
 
 // Start the Admin RPC interface
-pub fn run(ledger_path: &Path, meta: &AdminRpcRequestMetadata) {
+pub fn run(ledger_path: &Path, meta: AdminRpcRequestMetadata) {
     let admin_rpc_path = admin_rpc_path(ledger_path);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -753,12 +755,15 @@ pub fn run(ledger_path: &Path, meta: &AdminRpcRequestMetadata) {
                 let server_handle = server.unwrap();
                 info!("Started admin rpc service!");
 
-                validator_exit
-                    .write()
-                    .unwrap()
-                    .register_exit(Box::new(move || {
-                        server_handle.stop().unwrap();
-                    }));
+                {
+                    let server_handle = server_handle.clone();
+                    validator_exit
+                        .write()
+                        .unwrap()
+                        .register_exit(Box::new(move || {
+                            server_handle.stop().unwrap();
+                        }));
+                }
 
                 server_handle.stopped().await;
             });
@@ -787,10 +792,10 @@ fn admin_rpc_path(ledger_path: &Path) -> PathBuf {
 }
 
 // Connect to the Admin RPC interface
-pub async fn connect(ledger_path: &Path) -> std::result::Result<HttpClient<HttpBackend>, RpcError> {
+pub async fn connect(ledger_path: &Path) -> std::result::Result<HttpClient<HttpBackend>, Error> {
     let admin_rpc_path = admin_rpc_path(ledger_path);
     if !admin_rpc_path.exists() {
-        Err(RpcError::Client(format!(
+        Err(Error::Custom(format!(
             "{} does not exist",
             admin_rpc_path.display()
         )))

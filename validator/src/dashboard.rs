@@ -1,3 +1,7 @@
+use jsonrpsee::core::Error;
+
+use crate::admin_rpc_service::AdminRpcClient;
+
 use {
     crate::{
         admin_rpc_service, format_name_value, new_spinner_progress_bar, println_name_value,
@@ -224,7 +228,7 @@ async fn wait_for_validator_startup(
                     match async move {
                         let rpc_addr = admin_client.rpc_addr().await?;
                         let start_time = admin_client.start_time().await?;
-                        Ok::<_, jsonrpc_core_client::RpcError>((rpc_addr, start_time))
+                        Ok::<_, Error>((rpc_addr, start_time))
                     }
                     .await
                     {
