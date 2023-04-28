@@ -394,7 +394,7 @@ mod tests {
         let mut plugin_manager_lock = plugin_manager.write().unwrap();
         let reload_result = plugin_manager_lock.reload_plugin(DUMMY_NAME, DUMMY_CONFIG);
         assert_eq!(
-            reload_result.unwrap_err().message,
+            reload_result.unwrap_err().message(),
             "The plugin you requested to reload is not loaded"
         );
 
@@ -411,7 +411,7 @@ mod tests {
         const WRONG_NAME: &str = "wrong_name";
         let reload_result = plugin_manager_lock.reload_plugin(WRONG_NAME, DUMMY_CONFIG);
         assert_eq!(
-            reload_result.unwrap_err().message,
+            reload_result.unwrap_err().message(),
             "The plugin you requested to reload is not loaded"
         );
 

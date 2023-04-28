@@ -4075,13 +4075,17 @@ pub fn create_rpc_client_mocks() -> crate::mock_sender::Mocks {
 
 #[cfg(test)]
 mod tests {
+    use jsonrpsee::{
+        server::ServerBuilder,
+        types::{error::ErrorCode, ErrorObject, Params},
+        RpcModule,
+    };
+
     use {
         super::*,
         crate::mock_sender::PUBKEY,
         assert_matches::assert_matches,
         crossbeam_channel::unbounded,
-        jsonrpc_core::{futures::prelude::*, Error, IoHandler, Params},
-        jsonrpc_http_server::{AccessControlAllowOrigin, DomainsValidation, ServerBuilder},
         serde_json::{json, Number},
         solana_rpc_client_api::client_error::ErrorKind,
         solana_sdk::{
@@ -4113,24 +4117,23 @@ mod tests {
         let (sender, receiver) = unbounded();
         thread::spawn(move || {
             let rpc_addr = "0.0.0.0:0".parse().unwrap();
-            let mut io = IoHandler::default();
+            let mut io = RpcModule::new(());
             // Successful request
-            io.add_method("getBalance", |_params: Params| {
-                future::ok(Value::Number(Number::from(50)))
+            io.register_method("getBalance", |_, _| {
+                futures::future::ok(Value::Number(Number::from(50)))
             });
             // Failed request
-            io.add_method("getRecentBlockhash", |params: Params| {
+            io.register_method("getRecentBlockhash", |params: Params, _| {
                 if params != Params::None {
-                    future::err(Error::invalid_request())
+                    futures::future::err(ErrorObject::from(ErrorCode::InvalidRequest))
                 } else {
-                    future::ok(Value::String(
+                    futures::future::ok(Value::String(
                         "deadbeefXjn8o3yroDHxUtKsZZgoy4GPkPPXfouKNHhx".to_string(),
                     ))
                 }
             });
 
-            let server = ServerBuilder::new(io)
-                .threads(1)
+            let server = ServerBuilder::new()
                 .cors(DomainsValidation::AllowOnly(vec![
                     AccessControlAllowOrigin::Any,
                 ]))

@@ -4461,6 +4461,11 @@ pub fn populate_blockstore_for_tests(
 
 #[cfg(test)]
 pub mod tests {
+    use jsonrpsee::types::response::Response;
+    use jsonrpsee::{MethodResponse, RpcModule};
+    use serde_json::Value;
+    use tokio::sync::futures;
+
     use {
         super::{
             rpc_accounts::*, rpc_accounts_scan::*, rpc_bank::*, rpc_deprecated_v1_9::*,
@@ -4473,8 +4478,6 @@ pub mod tests {
             rpc_subscriptions::RpcSubscriptions,
         },
         bincode::deserialize,
-        jsonrpc_core::{futures, ErrorCode, MetaIoHandler, Output, Response, Value},
-        jsonrpc_core_client::transports::local,
         serde::de::DeserializeOwned,
         solana_address_lookup_table_program::state::{AddressLookupTable, LookupTableMeta},
         solana_entry::entry::next_versioned_entry,
@@ -4560,34 +4563,25 @@ pub mod tests {
         })
     }
 
-    fn parse_success_result<T: DeserializeOwned>(response: Response) -> T {
-        if let Response::Single(output) = response {
-            match output {
-                Output::Success(success) => serde_json::from_value(success.result).unwrap(),
-                Output::Failure(failure) => {
-                    panic!("Expected success but received: {failure:?}");
-                }
-            }
-        } else {
-            panic!("Expected single response");
+    fn parse_success_result<T: DeserializeOwned>(response: MethodResponse) -> T {
+        if response.success {
+            return serde_json::from_str(response.result).unwrap();
         }
+
+        panic!("Expected success but received: {:?}", response.result);
     }
 
-    fn parse_failure_response(response: Response) -> (i64, String) {
-        if let Response::Single(output) = response {
-            match output {
-                Output::Success(success) => {
-                    panic!("Expected failure but received: {success:?}");
-                }
-                Output::Failure(failure) => (failure.error.code.code(), failure.error.message),
-            }
-        } else {
-            panic!("Expected single response");
+    fn parse_failure_response(response: MethodResponse) -> (i64, String) {
+        if !response.success {
+            let res = serde_json::from_str(response.result).unwrap();
+            return (res["code"], res["message"]);
         }
+
+        panic!("Expected failure but received: {:?}", response.result);
     }
 
     struct RpcHandler {
-        io: MetaIoHandler<JsonRpcRequestProcessor>,
+        io: RpcModule<()>,
         meta: JsonRpcRequestProcessor,
         identity: Pubkey,
         mint_keypair: Keypair,
@@ -4653,13 +4647,14 @@ pub mod tests {
             )
             .0;
 
-            let mut io = MetaIoHandler::default();
-            io.extend_with(rpc_minimal::MinimalImpl.to_delegate());
-            io.extend_with(rpc_bank::BankDataImpl.to_delegate());
-            io.extend_with(rpc_accounts::AccountsDataImpl.to_delegate());
-            io.extend_with(rpc_accounts_scan::AccountsScanImpl.to_delegate());
-            io.extend_with(rpc_full::FullImpl.to_delegate());
-            io.extend_with(rpc_deprecated_v1_9::DeprecatedV1_9Impl.to_delegate());
+            let mut io = RpcModule::new(());
+            io.merge(rpc_minimal::MinimalImpl { meta: meta.clone() }.into_rpc());
+            io.merge(rpc_bank::BankDataImpl { meta: meta.clone() }.into_rpc());
+            io.merge(rpc_accounts::AccountsDataImpl { meta: meta.clone() }.into_rpc());
+            io.merge(rpc_accounts_scan::AccountsScanImpl { meta: meta.clone() }.into_rpc());
+            io.merge(rpc_full::FullImpl { meta: meta.clone() }.into_rpc());
+            io.merge(rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta: meta.clone() }.into_rpc());
+
             Self {
                 io,
                 meta,
@@ -4674,12 +4669,13 @@ pub mod tests {
             }
         }
 
-        fn handle_request_sync(&self, req: serde_json::Value) -> Response {
-            let response = &self
+        async fn handle_request(&self, req: serde_json::Value) -> MethodResponse {
+            self
                 .io
-                .handle_request_sync(&req.to_string(), self.meta.clone())
-                .expect("no response");
-            serde_json::from_str(response).expect("failed to deserialize response")
+                .raw_json_request(&req.to_string(), 0)
+                .await
+                .expect("no response")
+                .0
         }
 
         fn overwrite_working_bank_entries(&self, entries: Vec<Entry>) {
@@ -4911,8 +4907,8 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_rpc_get_balance() {
+    #[tokio::test]
+    async fn test_rpc_get_balance() {
         let genesis = create_genesis_config(20);
         let mint_pubkey = genesis.mint_keypair.pubkey();
         let bank = Arc::new(Bank::new_for_tests(&genesis.genesis_config));
@@ -4923,13 +4919,11 @@ pub mod tests {
             connection_cache,
         );
 
-        let mut io = MetaIoHandler::default();
-        io.extend_with(rpc_minimal::MinimalImpl.to_delegate());
-
+        let rpc = rpc_minimal::MinimalImpl { meta: meta.clone() }.into_rpc();
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"getBalance","params":["{mint_pubkey}"]}}"#
         );
-        let res = io.handle_request_sync(&req, meta);
+        let res = rpc.raw_json_request(&req, 1).await.unwrap();
         let expected = json!({
             "jsonrpc": "2.0",
             "result": {
@@ -4943,8 +4937,8 @@ pub mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_get_balance_via_client() {
+    #[tokio::test]
+    async fn test_rpc_get_balance_via_client() {
         let genesis = create_genesis_config(20);
         let mint_pubkey = genesis.mint_keypair.pubkey();
         let bank = Arc::new(Bank::new_for_tests(&genesis.genesis_config));
@@ -4955,21 +4949,17 @@ pub mod tests {
             connection_cache,
         );
 
-        let mut io = MetaIoHandler::default();
-        io.extend_with(rpc_minimal::MinimalImpl.to_delegate());
-
-        async fn use_client(client: rpc_minimal::gen_client::Client, mint_pubkey: Pubkey) -> u64 {
-            client
-                .get_balance(mint_pubkey.to_string(), None)
-                .await
-                .unwrap()
-                .value
-        }
+        let io = rpc_minimal::MinimalImpl { meta: meta.clone() }.into_rpc();
 
         let fut = async {
             let (client, server) =
                 local::connect_with_metadata::<rpc_minimal::gen_client::Client, _, _>(&io, meta);
-            let client = use_client(client, mint_pubkey);
+
+            let client = client
+                .get_balance(mint_pubkey.to_string(), None)
+                .await
+                .unwrap()
+                .value;
 
             futures::join!(client, server)
         };
@@ -4977,11 +4967,11 @@ pub mod tests {
         assert_eq!(response, 20);
     }
 
-    #[test]
-    fn test_rpc_get_cluster_nodes() {
+    #[tokio::test]
+    async fn test_rpc_get_cluster_nodes() {
         let rpc = RpcHandler::start();
         let request = create_test_request("getClusterNodes", None);
-        let result: Value = parse_success_result(rpc.handle_request_sync(request));
+        let result: Value = parse_success_result(rpc.handle_request(request).await);
         let expected = json!([{
             "pubkey": rpc.identity.to_string(),
             "gossip": "127.0.0.1:8000",
@@ -5006,8 +4996,8 @@ pub mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_get_recent_performance_samples() {
+    #[tokio::test]
+    async fn test_rpc_get_recent_performance_samples() {
         let rpc = RpcHandler::start();
 
         let slot = 0;
@@ -5028,7 +5018,7 @@ pub mod tests {
             .expect("write to blockstore");
 
         let request = create_test_request("getRecentPerformanceSamples", None);
-        let result: Value = parse_success_result(rpc.handle_request_sync(request));
+        let result: Value = parse_success_result(rpc.handle_request(request).await);
         let expected = json!([{
             "slot": slot,
             "numSlots": num_slots,
@@ -5039,11 +5029,11 @@ pub mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_get_recent_performance_samples_invalid_limit() {
+    #[tokio::test]
+    async fn test_rpc_get_recent_performance_samples_invalid_limit() {
         let rpc = RpcHandler::start();
         let request = create_test_request("getRecentPerformanceSamples", Some(json!([10_000])));
-        let response = parse_failure_response(rpc.handle_request_sync(request));
+        let response = parse_failure_response(rpc.handle_request(request).await);
         let expected = (
             ErrorCode::InvalidParams.code(),
             String::from("Invalid limit; max 720"),
@@ -5051,17 +5041,17 @@ pub mod tests {
         assert_eq!(response, expected);
     }
 
-    #[test]
-    fn test_rpc_get_slot_leader() {
+    #[tokio::test]
+    async fn test_rpc_get_slot_leader() {
         let rpc = RpcHandler::start();
         let request = create_test_request("getSlotLeader", None);
-        let result: String = parse_success_result(rpc.handle_request_sync(request));
+        let result: String = parse_success_result(rpc.handle_request(request).await);
         let expected = rpc.leader_pubkey().to_string();
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_get_tx_count() {
+    #[tokio::test]
+    async fn test_rpc_get_tx_count() {
         let bob_pubkey = solana_sdk::pubkey::new_rand();
         let genesis = create_genesis_config(10);
         let bank = Arc::new(Bank::new_for_tests(&genesis.genesis_config));
@@ -5082,11 +5072,10 @@ pub mod tests {
             connection_cache,
         );
 
-        let mut io = MetaIoHandler::default();
-        io.extend_with(rpc_minimal::MinimalImpl.to_delegate());
+        let rpc = rpc_minimal::MinimalImpl { meta: meta.clone() }.into_rpc();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"getTransactionCount"}"#;
-        let res = io.handle_request_sync(req, meta);
+        let (res, _) = rpc.raw_json_request(&req, 0).await.unwrap();
         let expected = r#"{"jsonrpc":"2.0","result":4,"id":1}"#;
         let expected: Response =
             serde_json::from_str(expected).expect("expected response deserialization");
@@ -5095,23 +5084,23 @@ pub mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_minimum_ledger_slot() {
+    #[tokio::test]
+    async fn test_rpc_minimum_ledger_slot() {
         let rpc = RpcHandler::start();
         // populate blockstore so that a minimum slot can be detected
         rpc.create_test_transactions_and_populate_blockstore();
         let request = create_test_request("minimumLedgerSlot", None);
-        let result: Slot = parse_success_result(rpc.handle_request_sync(request));
+        let result: Slot = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(0, result);
     }
 
-    #[test]
-    fn test_get_supply() {
+    #[tokio::test]
+    async fn test_get_supply() {
         let rpc = RpcHandler::start();
         let request = create_test_request("getSupply", None);
         let result = {
             let mut result: RpcResponse<RpcSupply> =
-                parse_success_result(rpc.handle_request_sync(request));
+                parse_success_result(rpc.handle_request(request).await);
             result.value.non_circulating_accounts.sort();
             result.value
         };
@@ -5132,14 +5121,15 @@ pub mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_get_supply_exclude_account_list() {
+    #[tokio::test]
+    async fn test_get_supply_exclude_account_list() {
         let rpc = RpcHandler::start();
         let request = create_test_request(
             "getSupply",
             Some(json!([{"excludeNonCirculatingAccountsList": true}])),
         );
-        let result: RpcResponse<RpcSupply> = parse_success_result(rpc.handle_request_sync(request));
+        let result: RpcResponse<RpcSupply> =
+            parse_success_result(rpc.handle_request(request).await);
         let expected = {
             let total_capitalization = rpc.working_bank().capitalization();
             RpcSupply {
@@ -5152,8 +5142,8 @@ pub mod tests {
         assert_eq!(result.value, expected);
     }
 
-    #[test]
-    fn test_get_largest_accounts() {
+    #[tokio::test]
+    async fn test_get_largest_accounts() {
         let rpc = RpcHandler::start();
 
         // make a non-circulating account one of the largest accounts
@@ -5169,7 +5159,7 @@ pub mod tests {
 
         let request = create_test_request("getLargestAccounts", None);
         let largest_accounts_result: RpcResponse<Vec<RpcAccountBalance>> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert_eq!(largest_accounts_result.value.len(), 20);
 
         // Get mint balance
@@ -5178,7 +5168,7 @@ pub mod tests {
             Some(json!([rpc.mint_keypair.pubkey().to_string()])),
         );
         let mint_balance_result: RpcResponse<u64> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert!(largest_accounts_result.value.contains(&RpcAccountBalance {
             address: rpc.mint_keypair.pubkey().to_string(),
             lamports: mint_balance_result.value,
@@ -5188,7 +5178,7 @@ pub mod tests {
         let request =
             create_test_request("getBalance", Some(json!([non_circulating_key.to_string()])));
         let non_circulating_balance_result: RpcResponse<u64> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert!(largest_accounts_result.value.contains(&RpcAccountBalance {
             address: non_circulating_key.to_string(),
             lamports: non_circulating_balance_result.value,
@@ -5200,7 +5190,7 @@ pub mod tests {
             Some(json!([{"filter":"circulating"}])),
         );
         let largest_accounts_result: RpcResponse<Vec<RpcAccountBalance>> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert_eq!(largest_accounts_result.value.len(), 20);
         assert!(!largest_accounts_result.value.contains(&RpcAccountBalance {
             address: non_circulating_key.to_string(),
@@ -5212,7 +5202,7 @@ pub mod tests {
             Some(json!([{"filter":"nonCirculating"}])),
         );
         let largest_accounts_result: RpcResponse<Vec<RpcAccountBalance>> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert_eq!(largest_accounts_result.value.len(), 1);
         assert!(largest_accounts_result.value.contains(&RpcAccountBalance {
             address: non_circulating_key.to_string(),
@@ -5220,31 +5210,31 @@ pub mod tests {
         }));
     }
 
-    #[test]
-    fn test_rpc_get_minimum_balance_for_rent_exemption() {
+    #[tokio::test]
+    async fn test_rpc_get_minimum_balance_for_rent_exemption() {
         let rpc = RpcHandler::start();
         let data_len = 50;
         let request =
             create_test_request("getMinimumBalanceForRentExemption", Some(json!([data_len])));
-        let result: u64 = parse_success_result(rpc.handle_request_sync(request));
+        let result: u64 = parse_success_result(rpc.handle_request(request).await);
         let expected = rpc
             .working_bank()
             .get_minimum_balance_for_rent_exemption(data_len);
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_get_inflation() {
+    #[tokio::test]
+    async fn test_rpc_get_inflation() {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
         let request = create_test_request("getInflationGovernor", None);
-        let result: RpcInflationGovernor = parse_success_result(rpc.handle_request_sync(request));
+        let result: RpcInflationGovernor = parse_success_result(rpc.handle_request(request).await);
         let expected: RpcInflationGovernor = bank.inflation().into();
         assert_eq!(result, expected);
 
         // Query inflation rate for current epoch
         let request = create_test_request("getInflationRate", None);
-        let result: RpcInflationRate = parse_success_result(rpc.handle_request_sync(request));
+        let result: RpcInflationRate = parse_success_result(rpc.handle_request(request).await);
         let inflation = bank.inflation();
         let epoch = bank.epoch();
         let slot_in_year = bank.slot_in_year_for_inflation();
@@ -5257,18 +5247,18 @@ pub mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_get_epoch_schedule() {
+    #[tokio::test]
+    async fn test_rpc_get_epoch_schedule() {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
         let request = create_test_request("getEpochSchedule", None);
-        let result: EpochSchedule = parse_success_result(rpc.handle_request_sync(request));
+        let result: EpochSchedule = parse_success_result(rpc.handle_request(request).await);
         let expected = bank.epoch_schedule();
         assert_eq!(expected, &result);
     }
 
-    #[test]
-    fn test_rpc_get_leader_schedule() {
+    #[tokio::test]
+    async fn test_rpc_get_leader_schedule() {
         let rpc = RpcHandler::start();
 
         for params in [
@@ -5279,7 +5269,7 @@ pub mod tests {
         ] {
             let request = create_test_request("getLeaderSchedule", params);
             let result: Option<RpcLeaderSchedule> =
-                parse_success_result(rpc.handle_request_sync(request));
+                parse_success_result(rpc.handle_request(request).await);
             let expected = Some(HashMap::from_iter(std::iter::once((
                 rpc.leader_pubkey().to_string(),
                 Vec::from_iter(0..=128),
@@ -5289,7 +5279,7 @@ pub mod tests {
 
         let request = create_test_request("getLeaderSchedule", Some(json!([42424242])));
         let result: Option<RpcLeaderSchedule> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         let expected: Option<RpcLeaderSchedule> = None;
         assert_eq!(result, expected);
 
@@ -5298,13 +5288,13 @@ pub mod tests {
             Some(json!([{"identity": Pubkey::new_unique().to_string() }])),
         );
         let result: Option<RpcLeaderSchedule> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         let expected = Some(HashMap::default());
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_get_slot_leaders() {
+    #[tokio::test]
+    async fn test_rpc_get_slot_leaders() {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
 
@@ -5314,7 +5304,7 @@ pub mod tests {
 
         let request =
             create_test_request("getSlotLeaders", Some(json!([query_start, query_limit])));
-        let result: Vec<String> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<String> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result.len(), query_limit as usize);
 
         // Test that invalid limit returns an error
@@ -5323,7 +5313,7 @@ pub mod tests {
 
         let request =
             create_test_request("getSlotLeaders", Some(json!([query_start, query_limit])));
-        let response = parse_failure_response(rpc.handle_request_sync(request));
+        let response = parse_failure_response(rpc.handle_request(request).await);
         let expected = (
             ErrorCode::InvalidParams.code(),
             String::from("Invalid limit; max 5000"),
@@ -5336,7 +5326,7 @@ pub mod tests {
 
         let request =
             create_test_request("getSlotLeaders", Some(json!([query_start, query_limit])));
-        let response = parse_failure_response(rpc.handle_request_sync(request));
+        let response = parse_failure_response(rpc.handle_request(request).await);
         let expected = (
             ErrorCode::InvalidParams.code(),
             String::from("Invalid slot range: leader schedule for epoch 2 is unavailable"),
@@ -5344,8 +5334,8 @@ pub mod tests {
         assert_eq!(response, expected);
     }
 
-    #[test]
-    fn test_rpc_get_account_info() {
+    #[tokio::test]
+    async fn test_rpc_get_account_info() {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
 
@@ -5353,7 +5343,7 @@ pub mod tests {
             "getAccountInfo",
             Some(json!([rpc.mint_keypair.pubkey().to_string()])),
         );
-        let result: Value = parse_success_result(rpc.handle_request_sync(request));
+        let result: Value = parse_success_result(rpc.handle_request(request).await);
         let expected = json!({
             "context": {"slot": 0, "apiVersion": RpcApiVersion::default()},
             "value":{
@@ -5395,7 +5385,7 @@ pub mod tests {
             "getAccountInfo",
             Some(json!([address, {"encoding": "binary", "dataSlice": {"length": 2, "offset": 1}}])),
         );
-        let result: Value = parse_success_result(rpc.handle_request_sync(request));
+        let result: Value = parse_success_result(rpc.handle_request(request).await);
         let expected = bs58::encode(&data[1..3]).into_string();
         assert_eq!(result["value"]["data"], expected);
         assert_eq!(result["value"]["space"], 5);
@@ -5414,8 +5404,8 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_rpc_get_multiple_accounts() {
+    #[tokio::test]
+    async fn test_rpc_get_multiple_accounts() {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
 
@@ -5435,7 +5425,7 @@ pub mod tests {
                 address,
             ]])),
         );
-        let result: RpcResponse<Value> = parse_success_result(rpc.handle_request_sync(request));
+        let result: RpcResponse<Value> = parse_success_result(rpc.handle_request(request).await);
         let expected = json!([
             {
                 "owner": "11111111111111111111111111111111",
@@ -5469,7 +5459,7 @@ pub mod tests {
                 {"encoding": "base58"},
             ])),
         );
-        let result: RpcResponse<Value> = parse_success_result(rpc.handle_request_sync(request));
+        let result: RpcResponse<Value> = parse_success_result(rpc.handle_request(request).await);
         let expected = json!([
             {
                 "owner": "11111111111111111111111111111111",
@@ -5502,7 +5492,7 @@ pub mod tests {
                 {"encoding": "jsonParsed", "dataSlice": {"length": 2, "offset": 1}},
             ])),
         );
-        let result: RpcResponse<Value> = parse_success_result(rpc.handle_request_sync(request));
+        let result: RpcResponse<Value> = parse_success_result(rpc.handle_request(request).await);
         let expected = json!([
             {
                 "owner": "11111111111111111111111111111111",
@@ -5528,8 +5518,8 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_rpc_get_program_accounts() {
+    #[tokio::test]
+    async fn test_rpc_get_program_accounts() {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
 
@@ -5542,7 +5532,7 @@ pub mod tests {
             "getProgramAccounts",
             Some(json!([new_program_id.to_string()])),
         );
-        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request(request).await);
         let expected_value = vec![RpcKeyedAccount {
             pubkey: new_program_account_key.to_string(),
             account: UiAccount::encode(
@@ -5564,7 +5554,7 @@ pub mod tests {
             ])),
         );
         let result: RpcResponse<Vec<RpcKeyedAccount>> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         let expected = RpcResponse {
             context: RpcResponseContext::new(0),
             value: expected_value,
@@ -5604,7 +5594,7 @@ pub mod tests {
                 }]},
             ])),
         );
-        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result.len(), 2);
 
         let request = create_test_request(
@@ -5619,7 +5609,7 @@ pub mod tests {
                 }]},
             ])),
         );
-        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result.len(), 0);
 
         // Test dataSize filter
@@ -5630,7 +5620,7 @@ pub mod tests {
                 {"filters": [{"dataSize": nonce::State::size()}]},
             ])),
         );
-        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result.len(), 2);
 
         let request = create_test_request(
@@ -5640,7 +5630,7 @@ pub mod tests {
                 {"filters": [{"dataSize": 1}]},
             ])),
         );
-        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result.len(), 0);
 
         // Test multiple filters
@@ -5661,7 +5651,7 @@ pub mod tests {
                 }]}, // Filter on Initialized and Nonce authority
             ])),
         );
-        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result.len(), 1);
 
         let request = create_test_request(
@@ -5678,12 +5668,12 @@ pub mod tests {
                 }]}, // Filter on Initialized and non-matching data size
             ])),
         );
-        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<RpcKeyedAccount> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result.len(), 0);
     }
 
-    #[test]
-    fn test_rpc_simulate_transaction() {
+    #[tokio::test]
+    async fn test_rpc_simulate_transaction() {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
         let rent_exempt_amount = bank.get_minimum_balance_for_rent_exemption(0);
@@ -5728,7 +5718,7 @@ pub mod tests {
             solana_sdk::pubkey::new_rand(),
             bob_pubkey,
         );
-        let res = io.handle_request_sync(&req, meta.clone());
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
         let expected = json!({
             "jsonrpc": "2.0",
             "result": {
@@ -5758,8 +5748,8 @@ pub mod tests {
         });
         let expected: Response =
             serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
+        let result: Response =
+            serde_json::from_str(&res.result).expect("actual response deserialization");
         assert_eq!(result, expected);
 
         // Too many input accounts...
@@ -5783,11 +5773,11 @@ pub mod tests {
                  ]
             }}"#,
         );
-        let res = io.handle_request_sync(&req, meta.clone());
+        let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
         let expected = json!({
             "jsonrpc":"2.0",
             "error": {
-                "code": error::ErrorCode::InvalidParams.code(),
+                "code": ErrorCode::InvalidParams.code(),
                 "message": "Too many accounts provided; max 3"
             },
             "id":1
@@ -5802,7 +5792,7 @@ pub mod tests {
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["{tx_badsig_serialized_encoded}", {{"sigVerify": true}}]}}"#,
         );
-        let res = io.handle_request_sync(&req, meta.clone());
+        let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
         let expected = json!({
             "jsonrpc":"2.0",
             "error": {
@@ -5814,15 +5804,15 @@ pub mod tests {
 
         let expected: Response =
             serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
+        let result: Response =
+            serde_json::from_str(&res.result).expect("actual response deserialization");
         assert_eq!(result, expected);
 
         // Bad signature with sigVerify=false
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["{tx_serialized_encoded}", {{"sigVerify": false}}]}}"#,
         );
-        let res = io.handle_request_sync(&req, meta.clone());
+        let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
         let expected = json!({
             "jsonrpc": "2.0",
             "result": {
@@ -5842,15 +5832,15 @@ pub mod tests {
         });
         let expected: Response =
             serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
+        let result: Response =
+            serde_json::from_str(&res.result).expect("actual response deserialization");
         assert_eq!(result, expected);
 
         // Bad signature with default sigVerify setting (false)
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["{tx_serialized_encoded}"]}}"#,
         );
-        let res = io.handle_request_sync(&req, meta.clone());
+        let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
         let expected = json!({
             "jsonrpc": "2.0",
             "result": {
@@ -5870,8 +5860,8 @@ pub mod tests {
         });
         let expected: Response =
             serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
+        let result: Response =
+            serde_json::from_str(&res.result).expect("actual response deserialization");
         assert_eq!(result, expected);
 
         // Enabled both sigVerify=true and replaceRecentBlockhash=true
@@ -5883,7 +5873,7 @@ pub mod tests {
                 "replaceRecentBlockhash": true,
             })
         );
-        let res = io.handle_request_sync(&req, meta.clone());
+        let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
         let expected = json!({
             "jsonrpc":"2.0",
             "error": {
@@ -5894,15 +5884,15 @@ pub mod tests {
         });
         let expected: Response =
             serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
+        let result: Response =
+            serde_json::from_str(&res.result).expect("actual response deserialization");
         assert_eq!(result, expected);
 
         // Bad recent blockhash with replaceRecentBlockhash=false
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["{tx_invalid_recent_blockhash}", {{"replaceRecentBlockhash": false}}]}}"#,
         );
-        let res = io.handle_request_sync(&req, meta.clone());
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
         let expected = json!({
             "jsonrpc":"2.0",
             "result": {
@@ -5920,15 +5910,15 @@ pub mod tests {
 
         let expected: Response =
             serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
+        let result: Response =
+            serde_json::from_str(&res.result).expect("actual response deserialization");
         assert_eq!(result, expected);
 
         // Bad recent blockhash with replaceRecentBlockhash=true
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["{tx_invalid_recent_blockhash}", {{"replaceRecentBlockhash": true}}]}}"#,
         );
-        let res = io.handle_request_sync(&req, meta.clone());
+        let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
         let expected = json!({
             "jsonrpc": "2.0",
             "result": {
@@ -5949,8 +5939,8 @@ pub mod tests {
 
         let expected: Response =
             serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response = serde_json::from_str(&res.expect("actual response"))
-            .expect("actual response deserialization");
+        let result: Response =
+            serde_json::from_str(&res.result).expect("actual response deserialization");
         assert_eq!(result, expected);
     }
 
@@ -5981,8 +5971,8 @@ pub mod tests {
         let _ = io.handle_request_sync(&req, meta);
     }
 
-    #[test]
-    fn test_rpc_get_signature_statuses() {
+    #[tokio::test]
+    async fn test_rpc_get_signature_statuses() {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
         let recent_blockhash = bank.confirmed_last_blockhash();
@@ -5998,9 +5988,9 @@ pub mod tests {
             r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureStatuses","params":[["{}"]]}}"#,
             confirmed_block_signatures[0]
         );
-        let res = io.handle_request_sync(&req, meta.clone());
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
         let expected_res: transaction::Result<()> = Ok(());
-        let json: Value = serde_json::from_str(&res.unwrap()).unwrap();
+        let json: Value = serde_json::from_str(&res.result).unwrap();
         let result: Option<TransactionStatus> =
             serde_json::from_value(json["result"]["value"][0].clone())
                 .expect("actual response deserialization");
@@ -6217,8 +6207,8 @@ pub mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_send_bad_tx() {
+    #[tokio::test]
+    async fn test_rpc_send_bad_tx() {
         let genesis = create_genesis_config(100);
         let bank = Arc::new(Bank::new_for_tests(&genesis.genesis_config));
         let connection_cache = Arc::new(ConnectionCache::new("connection_cache_test"));
@@ -6228,18 +6218,18 @@ pub mod tests {
             connection_cache,
         );
 
-        let mut io = MetaIoHandler::default();
-        io.extend_with(rpc_full::FullImpl.to_delegate());
+        let io = rpc_full::FullImpl { meta: meta.clone() }.into_rpc();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"sendTransaction","params":["37u9WtQpcm6ULa3Vmu7ySnANv"]}"#;
-        let res = io.handle_request_sync(req, meta);
-        let json: Value = serde_json::from_str(&res.unwrap()).unwrap();
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+
+        let json: Value = serde_json::from_str(&res.result).unwrap();
         let error = &json["error"];
         assert_eq!(error["code"], ErrorCode::InvalidParams.code());
     }
 
-    #[test]
-    fn test_rpc_send_transaction_preflight() {
+    #[tokio::test]
+    async fn test_rpc_send_transaction_preflight() {
         let exit = Arc::new(AtomicBool::new(false));
         let validator_exit = create_validator_exit(&exit);
         let ledger_path = get_tmp_ledger_path!();
@@ -6251,8 +6241,6 @@ pub mod tests {
         // Freeze bank 0 to prevent a panic in `run_transaction_simulation()`
         bank_forks.write().unwrap().get(0).unwrap().freeze();
 
-        let mut io = MetaIoHandler::default();
-        io.extend_with(rpc_full::FullImpl.to_delegate());
         let cluster_info = Arc::new({
             let keypair = Arc::new(Keypair::new());
             let contact_info = ContactInfo::new_with_socketaddr(
@@ -6302,6 +6290,8 @@ pub mod tests {
             42,
             Hash::default(),
         );
+
+        let io = rpc_full::FullImpl { meta: meta.clone() }.into_rpc();
 
         // sendTransaction will fail because the blockhash is invalid
         let req = format!(
@@ -6397,8 +6387,8 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_rpc_verify_filter() {
+    #[tokio::test]
+    async fn test_rpc_verify_filter() {
         let filter = RpcFilterType::Memcmp(Memcmp::new(
             0,                                                                                      // offset
             MemcmpEncodedBytes::Base58("13LeFbG6m2EP1fqCj9k66fcXsoTHMMtgr7c78AivUrYD".to_string()), // encoded bytes
@@ -6412,8 +6402,8 @@ pub mod tests {
         assert!(verify_filter(&filter).is_err());
     }
 
-    #[test]
-    fn test_rpc_verify_pubkey() {
+    #[tokio::test]
+    async fn test_rpc_verify_pubkey() {
         let pubkey = solana_sdk::pubkey::new_rand();
         assert_eq!(verify_pubkey(&pubkey.to_string()).unwrap(), pubkey);
         let bad_pubkey = "a1b2c3d4";
@@ -6423,8 +6413,8 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_rpc_verify_signature() {
+    #[tokio::test]
+    async fn test_rpc_verify_signature() {
         let tx = system_transaction::transfer(
             &Keypair::new(),
             &solana_sdk::pubkey::new_rand(),
@@ -6470,35 +6460,35 @@ pub mod tests {
         )
     }
 
-    #[test]
-    fn test_rpc_get_identity() {
+    #[tokio::test]
+    async fn test_rpc_get_identity() {
         let rpc = RpcHandler::start();
         let request = create_test_request("getIdentity", None);
-        let result: Value = parse_success_result(rpc.handle_request_sync(request));
+        let result: Value = parse_success_result(rpc.handle_request(request).await);
         let expected: Value = json!({ "identity": rpc.identity.to_string() });
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_get_max_slots() {
+    #[tokio::test]
+    async fn test_rpc_get_max_slots() {
         let rpc = RpcHandler::start();
         rpc.max_slots.retransmit.store(42, Ordering::Relaxed);
         rpc.max_slots.shred_insert.store(43, Ordering::Relaxed);
 
         let request = create_test_request("getMaxRetransmitSlot", None);
-        let result: Slot = parse_success_result(rpc.handle_request_sync(request));
+        let result: Slot = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, 42);
 
         let request = create_test_request("getMaxShredInsertSlot", None);
-        let result: Slot = parse_success_result(rpc.handle_request_sync(request));
+        let result: Slot = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, 43);
     }
 
-    #[test]
-    fn test_rpc_get_version() {
+    #[tokio::test]
+    async fn test_rpc_get_version() {
         let rpc = RpcHandler::start();
         let request = create_test_request("getVersion", None);
-        let result: Value = parse_success_result(rpc.handle_request_sync(request));
+        let result: Value = parse_success_result(rpc.handle_request(request).await);
         let expected = {
             let version = solana_version::Version::default();
             json!({
@@ -6509,8 +6499,8 @@ pub mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_rpc_processor_get_block_commitment() {
+    #[tokio::test]
+    async fn test_rpc_processor_get_block_commitment() {
         let exit = Arc::new(AtomicBool::new(false));
         let validator_exit = create_validator_exit(&exit);
         let bank_forks = new_bank_forks().0;
@@ -6590,8 +6580,8 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_rpc_get_block_commitment() {
+    #[tokio::test]
+    async fn test_rpc_get_block_commitment() {
         let rpc = RpcHandler::start();
 
         let expected_total_stake = 42;
@@ -6607,7 +6597,7 @@ pub mod tests {
         );
 
         let request = create_test_request("getBlockCommitment", Some(json!([0u64])));
-        let result: RpcBlockCommitment<_> = parse_success_result(rpc.handle_request_sync(request));
+        let result: RpcBlockCommitment<_> = parse_success_result(rpc.handle_request(request).await);
         let expected = RpcBlockCommitment {
             commitment: Some(block_0_commitment.commitment),
             total_stake: expected_total_stake,
@@ -6615,7 +6605,7 @@ pub mod tests {
         assert_eq!(result, expected);
 
         let request = create_test_request("getBlockCommitment", Some(json!([1u64])));
-        let result: Value = parse_success_result(rpc.handle_request_sync(request));
+        let result: Value = parse_success_result(rpc.handle_request(request).await);
         let expected = json!({
             "commitment": null,
             "totalStake": expected_total_stake,
@@ -6623,8 +6613,8 @@ pub mod tests {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_get_block_with_versioned_tx() {
+    #[tokio::test]
+    async fn test_get_block_with_versioned_tx() {
         let rpc = RpcHandler::start();
 
         let bank = rpc.working_bank();
@@ -6641,7 +6631,7 @@ pub mod tests {
             ])),
         );
         let result: Option<EncodedConfirmedBlock> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         let confirmed_block = result.unwrap();
         assert_eq!(confirmed_block.transactions.len(), 2);
         assert_eq!(
@@ -6654,7 +6644,7 @@ pub mod tests {
         );
 
         let request = create_test_request("getBlock", Some(json!([0u64,])));
-        let response = parse_failure_response(rpc.handle_request_sync(request));
+        let response = parse_failure_response(rpc.handle_request(request).await);
         let expected = (
             JSON_RPC_SERVER_ERROR_UNSUPPORTED_TRANSACTION_VERSION,
             String::from(
@@ -6666,14 +6656,14 @@ pub mod tests {
         assert_eq!(response, expected);
     }
 
-    #[test]
-    fn test_get_block() {
+    #[tokio::test]
+    async fn test_get_block() {
         let mut rpc = RpcHandler::start();
         let confirmed_block_signatures = rpc.create_test_transactions_and_populate_blockstore();
 
         let request = create_test_request("getBlock", Some(json!([0u64])));
         let result: Option<EncodedConfirmedBlock> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
 
         let confirmed_block = result.unwrap();
         assert_eq!(confirmed_block.transactions.len(), 2);
@@ -6718,7 +6708,7 @@ pub mod tests {
 
         let request = create_test_request("getBlock", Some(json!([0u64, "binary"])));
         let result: Option<EncodedConfirmedBlock> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         let confirmed_block = result.unwrap();
         assert_eq!(confirmed_block.transactions.len(), 2);
         assert_eq!(confirmed_block.rewards, vec![]);
@@ -6765,7 +6755,7 @@ pub mod tests {
         // disable rpc-tx-history
         rpc.meta.config.enable_rpc_transaction_history = false;
         let request = create_test_request("getBlock", Some(json!([0u64])));
-        let response = parse_failure_response(rpc.handle_request_sync(request));
+        let response = parse_failure_response(rpc.handle_request(request).await);
         let expected = (
             JSON_RPC_SERVER_ERROR_TRANSACTION_HISTORY_NOT_AVAILABLE,
             String::from("Transaction history is not available from this node"),
@@ -6773,8 +6763,8 @@ pub mod tests {
         assert_eq!(response, expected);
     }
 
-    #[test]
-    fn test_get_block_config() {
+    #[tokio::test]
+    async fn test_get_block_config() {
         let rpc = RpcHandler::start();
         let confirmed_block_signatures = rpc.create_test_transactions_and_populate_blockstore();
 
@@ -6792,7 +6782,7 @@ pub mod tests {
             ])),
         );
         let result: Option<UiConfirmedBlock> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
 
         let confirmed_block = result.unwrap();
         assert!(confirmed_block.transactions.is_none());
@@ -6815,15 +6805,15 @@ pub mod tests {
             ])),
         );
         let result: Option<UiConfirmedBlock> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         let confirmed_block = result.unwrap();
         assert!(confirmed_block.transactions.is_none());
         assert!(confirmed_block.signatures.is_none());
         assert_eq!(confirmed_block.rewards.unwrap(), vec![]);
     }
 
-    #[test]
-    fn test_get_block_production() {
+    #[tokio::test]
+    async fn test_get_block_production() {
         let rpc = RpcHandler::start();
         rpc.add_roots_to_blockstore(vec![0, 1, 3, 4, 8]);
         rpc.block_commitment_cache
@@ -6833,7 +6823,7 @@ pub mod tests {
 
         let request = create_test_request("getBlockProduction", Some(json!([])));
         let result: RpcResponse<RpcBlockProduction> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         let expected = RpcBlockProduction {
             by_identity: HashMap::from_iter(std::iter::once((
                 rpc.leader_pubkey().to_string(),
@@ -6853,7 +6843,7 @@ pub mod tests {
             }])),
         );
         let result: RpcResponse<RpcBlockProduction> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result.value, expected);
 
         let request = create_test_request(
@@ -6867,7 +6857,7 @@ pub mod tests {
             }])),
         );
         let result: RpcResponse<RpcBlockProduction> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         let expected = RpcBlockProduction {
             by_identity: HashMap::new(),
             range: RpcBlockProductionRange {
@@ -6878,8 +6868,8 @@ pub mod tests {
         assert_eq!(result.value, expected);
     }
 
-    #[test]
-    fn test_get_blocks() {
+    #[tokio::test]
+    async fn test_get_blocks() {
         let rpc = RpcHandler::start();
         let _ = rpc.create_test_transactions_and_populate_blockstore();
         rpc.add_roots_to_blockstore(vec![0, 1, 3, 4, 8]);
@@ -6889,23 +6879,23 @@ pub mod tests {
             .set_highest_super_majority_root(8);
 
         let request = create_test_request("getBlocks", Some(json!([0u64])));
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, vec![0, 1, 3, 4, 8]);
 
         let request = create_test_request("getBlocks", Some(json!([2u64])));
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, vec![3, 4, 8]);
 
         let request = create_test_request("getBlocks", Some(json!([0u64, 4u64])));
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, vec![0, 1, 3, 4]);
 
         let request = create_test_request("getBlocks", Some(json!([0u64, 7u64])));
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, vec![0, 1, 3, 4]);
 
         let request = create_test_request("getBlocks", Some(json!([9u64, 11u64])));
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, Vec::<Slot>::new());
 
         rpc.block_commitment_cache
@@ -6917,14 +6907,14 @@ pub mod tests {
             "getBlocks",
             Some(json!([0u64, MAX_GET_CONFIRMED_BLOCKS_RANGE])),
         );
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, vec![0, 1, 3, 4, 8]);
 
         let request = create_test_request(
             "getBlocks",
             Some(json!([0u64, MAX_GET_CONFIRMED_BLOCKS_RANGE + 1])),
         );
-        let response = parse_failure_response(rpc.handle_request_sync(request));
+        let response = parse_failure_response(rpc.handle_request(request).await);
         let expected = (
             ErrorCode::InvalidParams.code(),
             String::from("Slot range too large; max 500000"),
@@ -6932,8 +6922,8 @@ pub mod tests {
         assert_eq!(response, expected);
     }
 
-    #[test]
-    fn test_get_blocks_with_limit() {
+    #[tokio::test]
+    async fn test_get_blocks_with_limit() {
         let rpc = RpcHandler::start();
         rpc.add_roots_to_blockstore(vec![0, 1, 3, 4, 8]);
         rpc.block_commitment_cache
@@ -6942,7 +6932,7 @@ pub mod tests {
             .set_highest_super_majority_root(8);
 
         let request = create_test_request("getBlocksWithLimit", Some(json!([0u64, 500_001u64])));
-        let response = parse_failure_response(rpc.handle_request_sync(request));
+        let response = parse_failure_response(rpc.handle_request(request).await);
         let expected = (
             ErrorCode::InvalidParams.code(),
             String::from("Limit too large; max 500000"),
@@ -6950,28 +6940,28 @@ pub mod tests {
         assert_eq!(response, expected);
 
         let request = create_test_request("getBlocksWithLimit", Some(json!([0u64, 0u64])));
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, Vec::<Slot>::new());
 
         let request = create_test_request("getBlocksWithLimit", Some(json!([2u64, 2u64])));
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, vec![3, 4]);
 
         let request = create_test_request("getBlocksWithLimit", Some(json!([2u64, 3u64])));
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, vec![3, 4, 8]);
 
         let request = create_test_request("getBlocksWithLimit", Some(json!([2u64, 500_000u64])));
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, vec![3, 4, 8]);
 
         let request = create_test_request("getBlocksWithLimit", Some(json!([9u64, 500_000u64])));
-        let result: Vec<Slot> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Vec<Slot> = parse_success_result(rpc.handle_request(request).await);
         assert_eq!(result, Vec::<Slot>::new());
     }
 
-    #[test]
-    fn test_get_block_time() {
+    #[tokio::test]
+    async fn test_get_block_time() {
         let rpc = RpcHandler::start();
         rpc.add_roots_to_blockstore(vec![1, 2, 3, 4, 5, 6, 7]);
 
@@ -6990,17 +6980,17 @@ pub mod tests {
         let slot_duration = slot_duration_from_slots_per_year(rpc.working_bank().slots_per_year());
 
         let request = create_test_request("getBlockTime", Some(json!([2u64])));
-        let result: Option<UnixTimestamp> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Option<UnixTimestamp> = parse_success_result(rpc.handle_request(request).await);
         let expected = Some(base_timestamp);
         assert_eq!(result, expected);
 
         let request = create_test_request("getBlockTime", Some(json!([7u64])));
-        let result: Option<UnixTimestamp> = parse_success_result(rpc.handle_request_sync(request));
+        let result: Option<UnixTimestamp> = parse_success_result(rpc.handle_request(request).await);
         let expected = Some(base_timestamp + (7 * slot_duration).as_secs() as i64);
         assert_eq!(result, expected);
 
         let request = create_test_request("getBlockTime", Some(json!([12345u64])));
-        let response = parse_failure_response(rpc.handle_request_sync(request));
+        let response = parse_failure_response(rpc.handle_request(request).await);
         let expected = (
             JSON_RPC_SERVER_ERROR_BLOCK_NOT_AVAILABLE,
             String::from("Block not available for slot 12345"),
@@ -7008,8 +6998,8 @@ pub mod tests {
         assert_eq!(response, expected);
     }
 
-    #[test]
-    fn test_get_vote_accounts() {
+    #[tokio::test]
+    async fn test_get_vote_accounts() {
         let rpc = RpcHandler::start();
         let mut bank = rpc.working_bank();
         let RpcHandler {
@@ -7195,7 +7185,7 @@ pub mod tests {
                 json!([CommitmentConfig::processed()])
             );
 
-            let res = io.handle_request_sync(&req, meta.clone());
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
             let result: Value = serde_json::from_str(&res.expect("actual response"))
                 .expect("actual response deserialization");
 
@@ -7258,8 +7248,8 @@ pub mod tests {
         ));
     }
 
-    #[test]
-    fn test_token_rpcs() {
+    #[tokio::test]
+    async fn test_token_rpcs() {
         for program_id in solana_account_decoder::parse_token::spl_token_ids() {
             let rpc = RpcHandler::start();
             let bank = rpc.working_bank();
@@ -7401,7 +7391,10 @@ pub mod tests {
                     owner: program_id,
                     ..Account::default()
                 });
-                bank.store_account(&Pubkey::from_str(&mint.to_string()).unwrap(), &mint_account);
+                bank.store_account(
+                    &Pubkey::from_str(&mint.res.to_string()).unwrap(),
+                    &mint_account,
+                );
 
                 // Add another token account with the same owner, delegate, and mint
                 let other_token_account_pubkey = solana_sdk::pubkey::new_rand();
@@ -7432,9 +7425,9 @@ pub mod tests {
             let req = format!(
                 r#"{{"jsonrpc":"2.0","id":1,"method":"getTokenAccountBalance","params":["{token_account_pubkey}"]}}"#,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let balance: UiTokenAmount =
                 serde_json::from_value(result["result"]["value"].clone()).unwrap();
             let error = f64::EPSILON;
@@ -7448,18 +7441,18 @@ pub mod tests {
                 r#"{{"jsonrpc":"2.0","id":1,"method":"getTokenAccountBalance","params":["{}"]}}"#,
                 solana_sdk::pubkey::new_rand(),
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             assert!(result.get("error").is_some());
 
             // Test get token supply, pulls supply from mint
             let req = format!(
                 r#"{{"jsonrpc":"2.0","id":1,"method":"getTokenSupply","params":["{mint}"]}}"#,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let supply: UiTokenAmount =
                 serde_json::from_value(result["result"]["value"].clone()).unwrap();
             let error = f64::EPSILON;
@@ -7473,9 +7466,9 @@ pub mod tests {
                 r#"{{"jsonrpc":"2.0","id":1,"method":"getTokenSupply","params":["{}"]}}"#,
                 solana_sdk::pubkey::new_rand(),
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             assert!(result.get("error").is_some());
 
             // Test getTokenAccountsByOwner with Token program id returns all accounts, regardless of Mint address
@@ -7487,9 +7480,9 @@ pub mod tests {
                     "params":["{owner}", {{"programId": "{program_id}"}}, {{"encoding":"base64"}}]
                 }}"#,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let accounts: Vec<RpcKeyedAccount> =
                 serde_json::from_value(result["result"]["value"].clone()).unwrap();
             assert_eq!(accounts.len(), 3);
@@ -7503,9 +7496,9 @@ pub mod tests {
                     "params":["{owner}", {{"programId": "{program_id}"}}, {{"encoding": "jsonParsed"}}]
                 }}"#,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let accounts: Vec<RpcKeyedAccount> =
                 serde_json::from_value(result["result"]["value"].clone()).unwrap();
             assert_eq!(accounts.len(), 2);
@@ -7519,9 +7512,9 @@ pub mod tests {
                     "params":["{program_id}", {{"encoding": "jsonParsed"}}]
                 }}"#,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let accounts: Vec<RpcKeyedAccount> =
                 serde_json::from_value(result["result"].clone()).unwrap();
             if program_id == inline_spl_token::id() {
@@ -7539,9 +7532,9 @@ pub mod tests {
                     "params":["{owner}", {{"mint": "{mint}"}}, {{"encoding":"base64"}}]
                 }}"#,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let accounts: Vec<RpcKeyedAccount> =
                 serde_json::from_value(result["result"]["value"].clone()).unwrap();
             assert_eq!(accounts.len(), 2);
@@ -7557,8 +7550,8 @@ pub mod tests {
                 owner,
                 solana_sdk::pubkey::new_rand(),
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value = serde_json::from_str(&res.res.expect("actual response"))
                 .expect("actual response deserialization");
             assert!(result.get("error").is_some());
             let req = format!(
@@ -7571,8 +7564,8 @@ pub mod tests {
                 owner,
                 solana_sdk::pubkey::new_rand(),
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value = serde_json::from_str(&res.res.expect("actual response"))
                 .expect("actual response deserialization");
             assert!(result.get("error").is_some());
 
@@ -7587,8 +7580,8 @@ pub mod tests {
                 solana_sdk::pubkey::new_rand(),
                 program_id,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
+            let res = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value = serde_json::from_str(&res.res.expect("actual response"))
                 .expect("actual response deserialization");
             let accounts: Vec<RpcKeyedAccount> =
                 serde_json::from_value(result["result"]["value"].clone()).unwrap();
@@ -7603,9 +7596,9 @@ pub mod tests {
                     "params":["{delegate}", {{"programId": "{program_id}"}}, {{"encoding":"base64"}}]
                 }}"#,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let accounts: Vec<RpcKeyedAccount> =
                 serde_json::from_value(result["result"]["value"].clone()).unwrap();
             assert_eq!(accounts.len(), 3);
@@ -7619,9 +7612,9 @@ pub mod tests {
                     "params":["{delegate}", {{"mint": "{mint}"}}, {{"encoding":"base64"}}]
                 }}"#,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let res = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let accounts: Vec<RpcKeyedAccount> =
                 serde_json::from_value(result["result"]["value"].clone()).unwrap();
             assert_eq!(accounts.len(), 2);
@@ -7637,9 +7630,9 @@ pub mod tests {
                 delegate,
                 solana_sdk::pubkey::new_rand(),
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let res = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             assert!(result.get("error").is_some());
             let req = format!(
                 r#"{{
@@ -7651,9 +7644,9 @@ pub mod tests {
                 delegate,
                 solana_sdk::pubkey::new_rand(),
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             assert!(result.get("error").is_some());
 
             // Test non-existent Delegate
@@ -7667,9 +7660,9 @@ pub mod tests {
                 solana_sdk::pubkey::new_rand(),
                 program_id,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let accounts: Vec<RpcKeyedAccount> =
                 serde_json::from_value(result["result"]["value"].clone()).unwrap();
             assert!(accounts.is_empty());
@@ -7719,9 +7712,9 @@ pub mod tests {
             let req = format!(
                 r#"{{"jsonrpc":"2.0","id":1,"method":"getTokenLargestAccounts","params":["{new_mint}"]}}"#,
             );
-            let res = io.handle_request_sync(&req, meta);
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let largest_accounts: Vec<RpcTokenAccountBalance> =
                 serde_json::from_value(result["result"]["value"].clone()).unwrap();
             assert_eq!(
@@ -7750,8 +7743,8 @@ pub mod tests {
         }
     }
 
-    #[test]
-    fn test_token_parsing() {
+    #[tokio::test]
+    async fn test_token_parsing() {
         for program_id in solana_account_decoder::parse_token::spl_token_ids() {
             let rpc = RpcHandler::start();
             let bank = rpc.working_bank();
@@ -7876,9 +7869,9 @@ pub mod tests {
             let req = format!(
                 r#"{{"jsonrpc":"2.0","id":1,"method":"getAccountInfo","params":["{token_account_pubkey}", {{"encoding": "jsonParsed"}}]}}"#,
             );
-            let res = io.handle_request_sync(&req, meta.clone());
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.result).expect("actual response deserialization");
             let mut expected_value = json!({
                 "program": program_name,
                 "space": account_size,
@@ -7931,9 +7924,9 @@ pub mod tests {
             let req = format!(
                 r#"{{"jsonrpc":"2.0","id":1,"method":"getAccountInfo","params":["{mint}", {{"encoding": "jsonParsed"}}]}}"#,
             );
-            let res = io.handle_request_sync(&req, meta);
-            let result: Value = serde_json::from_str(&res.expect("actual response"))
-                .expect("actual response deserialization");
+            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let result: Value =
+                serde_json::from_str(&res.response).expect("actual response deserialization");
             let mut expected_value = json!({
                 "program": program_name,
                 "space": mint_size,
@@ -8124,8 +8117,8 @@ pub mod tests {
         .is_none());
     }
 
-    #[test]
-    fn test_rpc_single_gossip() {
+    #[tokio::test]
+    async fn test_rpc_single_gossip() {
         let exit = Arc::new(AtomicBool::new(false));
         let validator_exit = create_validator_exit(&exit);
         let ledger_path = get_tmp_ledger_path!();
@@ -8180,14 +8173,14 @@ pub mod tests {
             Arc::new(PrioritizationFeeCache::default()),
         );
 
-        let mut io = MetaIoHandler::default();
-        io.extend_with(rpc_minimal::MinimalImpl.to_delegate());
-        io.extend_with(rpc_full::FullImpl.to_delegate());
+        let mut io = RpcModule::new(());
+        io.merge(rpc_minimal::MinimalImpl { meta: meta.clone() }.into_rpc());
+        io.merge(rpc_full::FullImpl { meta: meta.clone() }.into_rpc());
 
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment":"confirmed"}]}"#;
-        let res = io.handle_request_sync(req, meta.clone());
-        let json: Value = serde_json::from_str(&res.unwrap()).unwrap();
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 0);
         let mut highest_confirmed_slot: Slot = 0;
@@ -8207,8 +8200,8 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let res = io.handle_request_sync(req, meta.clone());
-        let json: Value = serde_json::from_str(&res.unwrap()).unwrap();
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 2);
 
@@ -8226,8 +8219,8 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let res = io.handle_request_sync(req, meta.clone());
-        let json: Value = serde_json::from_str(&res.unwrap()).unwrap();
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 2);
 
@@ -8245,8 +8238,8 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let res = io.handle_request_sync(req, meta.clone());
-        let json: Value = serde_json::from_str(&res.unwrap()).unwrap();
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 2);
 
@@ -8265,8 +8258,8 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let res = io.handle_request_sync(req, meta);
-        let json: Value = serde_json::from_str(&res.unwrap()).unwrap();
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 3);
     }
@@ -8412,15 +8405,15 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_rpc_get_stake_minimum_delegation() {
+    #[tokio::test]
+    async fn test_rpc_get_stake_minimum_delegation() {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
         let expected_stake_minimum_delegation =
             solana_stake_program::get_minimum_delegation(&bank.feature_set);
 
         let request = create_test_request("getStakeMinimumDelegation", None);
-        let response: RpcResponse<u64> = parse_success_result(rpc.handle_request_sync(request));
+        let response: RpcResponse<u64> = parse_success_result(rpc.handle_request(request).await);
         let actual_stake_minimum_delegation = response.value;
 
         assert_eq!(
@@ -8429,8 +8422,8 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_get_fee_for_message() {
+    #[tokio::test]
+    async fn test_get_fee_for_message() {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
         // Slot hashes is necessary for processing versioned txs.
@@ -8455,7 +8448,8 @@ pub mod tests {
                     BASE64_STANDARD.encode(serialize(&legacy_msg).unwrap())
                 ])),
             );
-            let response: RpcResponse<u64> = parse_success_result(rpc.handle_request_sync(request));
+            let response: RpcResponse<u64> =
+                parse_success_result(rpc.handle_request(request).await);
             assert_eq!(response.value, TEST_SIGNATURE_FEE);
         }
 
@@ -8474,13 +8468,14 @@ pub mod tests {
                 "getFeeForMessage",
                 Some(json!([BASE64_STANDARD.encode(serialize(&v0_msg).unwrap())])),
             );
-            let response: RpcResponse<u64> = parse_success_result(rpc.handle_request_sync(request));
+            let response: RpcResponse<u64> =
+                parse_success_result(rpc.handle_request(request).await);
             assert_eq!(response.value, TEST_SIGNATURE_FEE);
         }
     }
 
-    #[test]
-    fn test_rpc_get_recent_prioritization_fees() {
+    #[tokio::test]
+    async fn test_rpc_get_recent_prioritization_fees() {
         fn wait_for_cache_blocks(cache: &PrioritizationFeeCache, num_blocks: usize) {
             while cache.available_block_count() < num_blocks {
                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -8526,7 +8521,7 @@ pub mod tests {
 
         let request = create_test_request("getRecentPrioritizationFees", None);
         let mut response: Vec<RpcPrioritizationFee> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert_fee_vec_eq(
             &mut response,
             &mut vec![RpcPrioritizationFee {
@@ -8540,7 +8535,7 @@ pub mod tests {
             Some(json!([[account1.to_string()]])),
         );
         let mut response: Vec<RpcPrioritizationFee> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert_fee_vec_eq(
             &mut response,
             &mut vec![RpcPrioritizationFee {
@@ -8554,7 +8549,7 @@ pub mod tests {
             Some(json!([[account2.to_string()]])),
         );
         let mut response: Vec<RpcPrioritizationFee> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert_fee_vec_eq(
             &mut response,
             &mut vec![RpcPrioritizationFee {
@@ -8586,7 +8581,7 @@ pub mod tests {
 
         let request = create_test_request("getRecentPrioritizationFees", None);
         let mut response: Vec<RpcPrioritizationFee> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert_fee_vec_eq(
             &mut response,
             &mut vec![
@@ -8606,7 +8601,7 @@ pub mod tests {
             Some(json!([[account1.to_string()]])),
         );
         let mut response: Vec<RpcPrioritizationFee> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert_fee_vec_eq(
             &mut response,
             &mut vec![
@@ -8626,7 +8621,7 @@ pub mod tests {
             Some(json!([[account2.to_string()]])),
         );
         let mut response: Vec<RpcPrioritizationFee> =
-            parse_success_result(rpc.handle_request_sync(request));
+            parse_success_result(rpc.handle_request(request).await);
         assert_fee_vec_eq(
             &mut response,
             &mut vec![

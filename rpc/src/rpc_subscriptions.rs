@@ -1248,6 +1248,8 @@ impl RpcSubscriptions {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::rpc_pubsub::RpcSolPubSubInternalServer;
+
     use {
         super::*,
         crate::{
@@ -1255,7 +1257,6 @@ pub(crate) mod tests {
                 BankNotification, OptimisticallyConfirmedBank, OptimisticallyConfirmedBankTracker,
             },
             rpc::{create_test_transaction_entries, populate_blockstore_for_tests},
-            rpc_pubsub::RpcSolPubSubInternal,
             rpc_pubsub_service,
         },
         serial_test::serial,

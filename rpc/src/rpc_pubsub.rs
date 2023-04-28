@@ -484,8 +484,10 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
 
 #[cfg(test)]
 mod tests {
+
+    use jsonrpsee::{types::response::Response, RpcModule};
     use {
-        super::{RpcSolPubSubInternal, *},
+        super::*,
         crate::{
             optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank, rpc_pubsub_service,
             rpc_subscriptions::RpcSubscriptions,
@@ -698,7 +700,7 @@ mod tests {
         let blockhash = bank.last_blockhash();
         let bank_forks = Arc::new(RwLock::new(BankForks::new(bank)));
 
-        let mut io = IoHandler::<()>::default();
+        let mut io = RpcModule::new(());
         let max_complete_transaction_status_slot = Arc::new(AtomicU64::default());
         let max_complete_rewards_slot = Arc::new(AtomicU64::default());
         let subscriptions = Arc::new(RpcSubscriptions::default_with_bank_forks(
@@ -708,32 +710,32 @@ mod tests {
         ));
         let (rpc, _receiver) = rpc_pubsub_service::test_connection(&subscriptions);
 
-        io.extend_with(rpc.to_delegate());
+        io.merge(rpc.into_rpc());
 
         let tx = system_transaction::transfer(&alice, &bob_pubkey, 20, blockhash);
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"signatureSubscribe","params":["{}"]}}"#,
             tx.signatures[0]
         );
-        let _res = io.handle_request_sync(&req);
+        let _ = io.raw_json_request(&req).await.unwrap();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"signatureUnsubscribe","params":[0]}"#;
-        let res = io.handle_request_sync(req);
+        let res = io.raw_json_request(req).await.unwrap();
 
         let expected = r#"{"jsonrpc":"2.0","result":true,"id":1}"#;
-        let expected: Response = serde_json::from_str(expected).unwrap();
+        let expected: Response<bool> = serde_json::from_str(expected).unwrap();
 
-        let result: Response = serde_json::from_str(&res.unwrap()).unwrap();
-        assert_eq!(result, expected);
+        let result: Response<bool> = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result.payload, expected.payload);
 
         // Test bad parameter
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"signatureUnsubscribe","params":[1]}"#;
-        let res = io.handle_request_sync(req);
+        let res = io.raw_json_request(req);
         let expected = r#"{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid subscription id."},"id":1}"#;
-        let expected: Response = serde_json::from_str(expected).unwrap();
+        let expected: Response<()> = serde_json::from_str(expected).unwrap();
 
-        let result: Response = serde_json::from_str(&res.unwrap()).unwrap();
-        assert_eq!(result, expected);
+        let result: Response<()> = serde_json::from_str(&res.unwrap()).unwrap();
+        assert_eq!(result.payload, expected.payload);
     }
 
     #[test]
@@ -965,9 +967,9 @@ mod tests {
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[serial]
-    fn test_account_unsubscribe() {
+    async fn test_account_unsubscribe() {
         let bob_pubkey = solana_sdk::pubkey::new_rand();
 
         let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10_000);
@@ -975,7 +977,6 @@ mod tests {
             &genesis_config,
         ))));
 
-        let mut io = IoHandler::<()>::default();
         let max_complete_transaction_status_slot = Arc::new(AtomicU64::default());
         let max_complete_rewards_slot = Arc::new(AtomicU64::default());
         let subscriptions = Arc::new(RpcSubscriptions::default_with_bank_forks(
@@ -985,29 +986,29 @@ mod tests {
         ));
         let (rpc, _receiver) = rpc_pubsub_service::test_connection(&subscriptions);
 
-        io.extend_with(rpc.to_delegate());
+        let io = rpc.into_rpc();
 
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"accountSubscribe","params":["{bob_pubkey}"]}}"#
         );
-        let _res = io.handle_request_sync(&req);
+        let _ = io.raw_json_request(&req, 0).await.unwrap();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"accountUnsubscribe","params":[0]}"#;
-        let res = io.handle_request_sync(req);
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
 
         let expected = r#"{"jsonrpc":"2.0","result":true,"id":1}"#;
-        let expected: Response = serde_json::from_str(expected).unwrap();
+        let expected: Response<bool> = serde_json::from_str(expected).unwrap();
 
-        let result: Response = serde_json::from_str(&res.unwrap()).unwrap();
+        let result: Response<bool> = serde_json::from_str(&res.result).unwrap();
         assert_eq!(result, expected);
 
         // Test bad parameter
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"accountUnsubscribe","params":[1]}"#;
-        let res = io.handle_request_sync(req);
+        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
         let expected = r#"{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid subscription id."},"id":1}"#;
         let expected: Response = serde_json::from_str(expected).unwrap();
 
-        let result: Response = serde_json::from_str(&res.unwrap()).unwrap();
+        let result: Response = serde_json::from_str(&res.result).unwrap();
         assert_eq!(result, expected);
     }
 
