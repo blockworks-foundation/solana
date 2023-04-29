@@ -1021,7 +1021,7 @@ mod tests {
                     r#"{{"jsonrpc":"2.0","id":1,"method":"getSecondaryIndexKeySize","params":["{}"]}}"#,
                     system_program::id(),
                 );
-                let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+                let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
                 let result: Value =
                     serde_json::from_str(&res.result).expect("actual response deserialization");
                 let sizes: HashMap<RpcAccountIndex, usize> =
@@ -1165,7 +1165,7 @@ mod tests {
                 let req = format!(
                     r#"{{"jsonrpc":"2.0","id":1,"method":"getSecondaryIndexKeySize","params":["{non_existent_pubkey}"]}}"#,
                 );
-                let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+                let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
                 let result: Value =
                     serde_json::from_str(&res.result).expect("actual response deserialization");
                 let sizes: HashMap<RpcAccountIndex, usize> =
@@ -1176,7 +1176,7 @@ mod tests {
                 let req = format!(
                     r#"{{"jsonrpc":"2.0","id":1,"method":"getSecondaryIndexKeySize","params":["{wallet1_pubkey}"]}}"#,
                 );
-                let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+                let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
                 let result: Value =
                     serde_json::from_str(&res.result).expect("actual response deserialization");
                 let sizes: HashMap<RpcAccountIndex, usize> =
@@ -1187,7 +1187,7 @@ mod tests {
                 let req = format!(
                     r#"{{"jsonrpc":"2.0","id":1,"method":"getSecondaryIndexKeySize","params":["{wallet2_pubkey}"]}}"#,
                 );
-                let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+                let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
                 let result: Value =
                     serde_json::from_str(&res.result).expect("actual response deserialization");
                 let sizes: HashMap<RpcAccountIndex, usize> =
@@ -1198,7 +1198,7 @@ mod tests {
                 let req = format!(
                     r#"{{"jsonrpc":"2.0","id":1,"method":"getSecondaryIndexKeySize","params":["{mint1_pubkey}"]}}"#,
                 );
-                let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+                let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
                 let result: Value =
                     serde_json::from_str(&res.result).expect("actual response deserialization");
                 let sizes: HashMap<RpcAccountIndex, usize> =
@@ -1209,7 +1209,7 @@ mod tests {
                 let req = format!(
                     r#"{{"jsonrpc":"2.0","id":1,"method":"getSecondaryIndexKeySize","params":["{mint2_pubkey}"]}}"#,
                 );
-                let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+                let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
                 let result: Value =
                     serde_json::from_str(&res.result).expect("actual response deserialization");
                 let sizes: HashMap<RpcAccountIndex, usize> =
@@ -1221,7 +1221,7 @@ mod tests {
                     r#"{{"jsonrpc":"2.0","id":1,"method":"getSecondaryIndexKeySize","params":["{}"]}}"#,
                     inline_spl_token::id(),
                 );
-                let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+                let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
                 let result: Value =
                     serde_json::from_str(&res.result).expect("actual response deserialization");
                 let sizes: HashMap<RpcAccountIndex, usize> =
@@ -1236,7 +1236,7 @@ mod tests {
                     r#"{{"jsonrpc":"2.0","id":1,"method":"getSecondaryIndexKeySize","params":["{}"]}}"#,
                     system_program::id(),
                 );
-                let res = io.raw_json_request(&req, 0).await.unwrap();
+                let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
                 let result: Value =
                     serde_json::from_str(&res.result).expect("actual response deserialization");
                 let sizes: HashMap<RpcAccountIndex, usize> =
