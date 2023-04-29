@@ -4119,15 +4119,13 @@ mod tests {
             let rpc_addr = "0.0.0.0:0".parse().unwrap();
             let mut io = RpcModule::new(());
             // Successful request
-            io.register_method("getBalance", |_, _| {
-                futures::future::ok(Value::Number(Number::from(50)))
-            });
+            io.register_method("getBalance", |_, _| Value::Number(Number::from(50)));
             // Failed request
             io.register_method("getRecentBlockhash", |params: Params, _| {
-                if params != Params::None {
-                    futures::future::err(ErrorObject::from(ErrorCode::InvalidRequest))
+                if params.is_object() {
+                    Err(ErrorObject::from(ErrorCode::InvalidRequest))
                 } else {
-                    futures::future::ok(Value::String(
+                    Ok(Value::String(
                         "deadbeefXjn8o3yroDHxUtKsZZgoy4GPkPPXfouKNHhx".to_string(),
                     ))
                 }

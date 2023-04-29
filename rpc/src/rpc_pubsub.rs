@@ -687,9 +687,9 @@ mod tests {
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[serial]
-    fn test_signature_unsubscribe() {
+    async fn test_signature_unsubscribe() {
         let GenesisConfigInfo {
             genesis_config,
             mint_keypair: alice,
@@ -717,10 +717,10 @@ mod tests {
             r#"{{"jsonrpc":"2.0","id":1,"method":"signatureSubscribe","params":["{}"]}}"#,
             tx.signatures[0]
         );
-        let _ = io.raw_json_request(&req).await.unwrap();
+        let _ = io.raw_json_request(&req, 1).await.unwrap();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"signatureUnsubscribe","params":[0]}"#;
-        let res = io.raw_json_request(req).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
 
         let expected = r#"{"jsonrpc":"2.0","result":true,"id":1}"#;
         let expected: Response<bool> = serde_json::from_str(expected).unwrap();
@@ -730,11 +730,11 @@ mod tests {
 
         // Test bad parameter
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"signatureUnsubscribe","params":[1]}"#;
-        let res = io.raw_json_request(req);
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
         let expected = r#"{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid subscription id."},"id":1}"#;
         let expected: Response<()> = serde_json::from_str(expected).unwrap();
 
-        let result: Response<()> = serde_json::from_str(&res.unwrap()).unwrap();
+        let result: Response<()> = serde_json::from_str(&res.result).unwrap();
         assert_eq!(result.payload, expected.payload);
     }
 
@@ -1000,16 +1000,16 @@ mod tests {
         let expected: Response<bool> = serde_json::from_str(expected).unwrap();
 
         let result: Response<bool> = serde_json::from_str(&res.result).unwrap();
-        assert_eq!(result, expected);
+        assert_eq!(result.payload, expected.payload);
 
         // Test bad parameter
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"accountUnsubscribe","params":[1]}"#;
         let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
         let expected = r#"{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid subscription id."},"id":1}"#;
-        let expected: Response = serde_json::from_str(expected).unwrap();
+        let expected: Response<()> = serde_json::from_str(expected).unwrap();
 
-        let result: Response = serde_json::from_str(&res.result).unwrap();
-        assert_eq!(result, expected);
+        let result: Response<()> = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result.payload, expected.payload);
     }
 
     #[test]
