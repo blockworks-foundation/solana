@@ -6588,6 +6588,8 @@ dependencies = [
  "solana-version",
  "solana-vote-program",
  "tokio",
+ "tower",
+ "tower-http 0.4.0",
 ]
 
 [[package]]

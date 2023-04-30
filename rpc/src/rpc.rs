@@ -4464,7 +4464,6 @@ pub mod tests {
     use jsonrpsee::types::response::Response;
     use jsonrpsee::{MethodResponse, RpcModule};
     use serde_json::Value;
-    use tokio::sync::futures;
 
     use {
         super::{
@@ -4574,7 +4573,10 @@ pub mod tests {
     fn parse_failure_response(response: MethodResponse) -> (i32, String) {
         if !response.success {
             let res: Value = serde_json::from_str(&response.result).unwrap();
-            return (res["code"].as_i64() as i32, res["message"].to_string());
+            return (
+                res["code"].as_i64().unwrap() as i32,
+                res["message"].to_string(),
+            );
         }
 
         panic!("Expected failure but received: {:?}", response.result);
@@ -7377,7 +7379,7 @@ pub mod tests {
                     ..Account::default()
                 });
                 bank.store_account(
-                    &Pubkey::from_str(&mint.res.to_string()).unwrap(),
+                    &Pubkey::from_str(&mint.to_string()).unwrap(),
                     &mint_account,
                 );
 

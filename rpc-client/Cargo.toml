@@ -34,6 +34,8 @@ assert_matches = { workspace = true }
 crossbeam-channel = { workspace = true }
 futures = { workspace = true }
 jsonrpsee = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
 
 [features]
 default = ["spinner"]
