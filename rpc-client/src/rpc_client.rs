@@ -4097,8 +4097,8 @@ mod tests {
         std::{io, thread},
     };
 
-    #[test]
-    fn test_send() {
+    #[tokio::test]
+    async fn test_send() {
         _test_send().await;
     }
 
