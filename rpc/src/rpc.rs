@@ -4650,12 +4650,12 @@ pub mod tests {
             .0;
 
             let mut io = RpcModule::new(());
-            io.merge(rpc_minimal::MinimalImpl { meta: meta.clone() }.into_rpc());
-            io.merge(rpc_bank::BankDataImpl { meta: meta.clone() }.into_rpc());
-            io.merge(rpc_accounts::AccountsDataImpl { meta: meta.clone() }.into_rpc());
-            io.merge(rpc_accounts_scan::AccountsScanImpl { meta: meta.clone() }.into_rpc());
-            io.merge(rpc_full::FullImpl { meta: meta.clone() }.into_rpc());
-            io.merge(rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta: meta.clone() }.into_rpc());
+            io.merge(rpc_minimal::MinimalImpl { meta: meta.clone() }.into_rpc()).unwrap();
+            io.merge(rpc_bank::BankDataImpl { meta: meta.clone() }.into_rpc()).unwrap();
+            io.merge(rpc_accounts::AccountsDataImpl { meta: meta.clone() }.into_rpc()).unwrap();
+            io.merge(rpc_accounts_scan::AccountsScanImpl { meta: meta.clone() }.into_rpc()).unwrap();
+            io.merge(rpc_full::FullImpl { meta: meta.clone() }.into_rpc()).unwrap();
+            io.merge(rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta: meta.clone() }.into_rpc()).unwrap();
 
             Self {
                 io,
@@ -5680,7 +5680,7 @@ pub mod tests {
         let rent_exempt_amount = bank.get_minimum_balance_for_rent_exemption(0);
         let recent_blockhash = bank.confirmed_last_blockhash();
         let RpcHandler {
-            ref meta, ref io, ..
+             ref io, ..
         } = rpc;
 
         let bob_pubkey = solana_sdk::pubkey::new_rand();
@@ -5922,7 +5922,7 @@ pub mod tests {
         let bank = rpc.working_bank();
         let recent_blockhash = bank.confirmed_last_blockhash();
         let RpcHandler {
-            meta,
+            
             io,
             mint_keypair,
             ..
@@ -6022,7 +6022,7 @@ pub mod tests {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
         let recent_blockhash = bank.confirmed_last_blockhash();
-        let RpcHandler { meta, io, .. } = rpc;
+        let RpcHandler {  io, .. } = rpc;
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"getRecentBlockhash"}"#;
         let (res, _) = io.raw_json_request(req, 1).await.unwrap();
@@ -6048,7 +6048,7 @@ pub mod tests {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
         let recent_blockhash = bank.confirmed_last_blockhash();
-        let RpcHandler { meta, io, .. } = rpc;
+        let RpcHandler {  io, .. } = rpc;
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"getFees"}"#;
         let (res, _) = io.raw_json_request(req, 1).await.unwrap();
@@ -6076,7 +6076,7 @@ pub mod tests {
         let rpc = RpcHandler::start();
         let bank = rpc.working_bank();
         let recent_blockhash = bank.confirmed_last_blockhash();
-        let RpcHandler { meta, io, .. } = rpc;
+        let RpcHandler {  io, .. } = rpc;
 
         let lamports_per_signature = bank.get_lamports_per_signature();
         let fee_calculator = RpcFeeCalculator {
@@ -6142,7 +6142,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_rpc_fail_request_airdrop() {
-        let RpcHandler { meta, io, .. } = RpcHandler::start();
+        let RpcHandler {  io, .. } = RpcHandler::start();
 
         // Expect internal error because no faucet is available
         let bob_pubkey = solana_sdk::pubkey::new_rand();
@@ -6170,7 +6170,7 @@ pub mod tests {
         let io = rpc_full::FullImpl { meta: meta.clone() }.into_rpc();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"sendTransaction","params":["37u9WtQpcm6ULa3Vmu7ySnANv"]}"#;
-        let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
 
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let error = &json["error"];
@@ -6941,7 +6941,7 @@ pub mod tests {
         let mut bank = rpc.working_bank();
         let RpcHandler {
             ref io,
-            ref meta,
+            
             ref mint_keypair,
             ref leader_vote_keypair,
             ..
@@ -7190,7 +7190,7 @@ pub mod tests {
         for program_id in solana_account_decoder::parse_token::spl_token_ids() {
             let rpc = RpcHandler::start();
             let bank = rpc.working_bank();
-            let RpcHandler { io, meta, .. } = rpc;
+            let RpcHandler { io,  .. } = rpc;
             let mint = SplTokenPubkey::new_from_array([2; 32]);
             let owner = SplTokenPubkey::new_from_array([3; 32]);
             let delegate = SplTokenPubkey::new_from_array([4; 32]);
@@ -7685,7 +7685,7 @@ pub mod tests {
         for program_id in solana_account_decoder::parse_token::spl_token_ids() {
             let rpc = RpcHandler::start();
             let bank = rpc.working_bank();
-            let RpcHandler { io, meta, .. } = rpc;
+            let RpcHandler { io,  .. } = rpc;
 
             let mint = SplTokenPubkey::new_from_array([2; 32]);
             let owner = SplTokenPubkey::new_from_array([3; 32]);
@@ -8111,12 +8111,12 @@ pub mod tests {
         );
 
         let mut io = RpcModule::new(());
-        io.merge(rpc_minimal::MinimalImpl { meta: meta.clone() }.into_rpc());
-        io.merge(rpc_full::FullImpl { meta: meta.clone() }.into_rpc());
+        io.merge(rpc_minimal::MinimalImpl { meta: meta.clone() }.into_rpc()).unwrap();
+        io.merge(rpc_full::FullImpl { meta: meta.clone() }.into_rpc()).unwrap();
 
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment":"confirmed"}]}"#;
-        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 0);
@@ -8137,7 +8137,7 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 2);
@@ -8156,7 +8156,7 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 2);
@@ -8175,7 +8175,7 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 2);
@@ -8195,7 +8195,7 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 3);

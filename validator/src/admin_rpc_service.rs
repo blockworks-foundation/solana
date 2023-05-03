@@ -800,7 +800,7 @@ pub async fn connect(ledger_path: &Path) -> std::result::Result<HttpClient<HttpB
             admin_rpc_path.display()
         )))
     } else {
-        Ok(HttpClientBuilder::default().build(&format!("{}", admin_rpc_path.display()))?)
+        Ok(HttpClientBuilder::default().build(format!("{}", admin_rpc_path.display()))?)
     }
 }
 
@@ -878,8 +878,7 @@ mod tests {
     }
 
     struct RpcHandler {
-        io: RpcModule<()>,
-        meta: AdminRpcRequestMetadata,
+        io: RpcModule<AdminRpcImpl>,
         bank_forks: Arc<RwLock<BankForks>>,
     }
 
@@ -924,14 +923,9 @@ mod tests {
                 rpc_to_plugin_manager_sender: None,
             };
 
-            let mut io = RpcModule::new(());
-            io.merge(AdminRpcImpl { meta: meta.clone() }.into_rpc());
+            let io = AdminRpcImpl { meta }.into_rpc();
 
-            Self {
-                io,
-                meta,
-                bank_forks,
-            }
+            Self { io, bank_forks }
         }
 
         fn root_bank(&self) -> Arc<Bank> {
@@ -975,7 +969,7 @@ mod tests {
             let rpc = RpcHandler::start_with_config(TestConfig { account_indexes });
 
             let bank = rpc.root_bank();
-            let RpcHandler { io,  .. } = rpc;
+            let RpcHandler { io, .. } = rpc;
 
             // Pubkeys
             let token_account1_pubkey = Pubkey::new_unique();
@@ -1283,7 +1277,7 @@ mod tests {
         let rpc = RpcHandler::start_with_config(TestConfig { account_indexes });
 
         let bank = rpc.root_bank();
-        let RpcHandler { io,  .. } = rpc;
+        let RpcHandler { io, .. } = rpc;
 
         // Add some basic system owned account
         let mut dummy_account_pubkeys = Vec::with_capacity(NUM_DUMMY_ACCOUNTS);

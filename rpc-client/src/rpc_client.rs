@@ -4085,7 +4085,6 @@ mod tests {
         super::*,
         crate::mock_sender::PUBKEY,
         assert_matches::assert_matches,
-        crossbeam_channel::unbounded,
         serde_json::{json, Number},
         solana_rpc_client_api::client_error::ErrorKind,
         solana_sdk::{

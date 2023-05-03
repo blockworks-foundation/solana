@@ -710,7 +710,7 @@ mod tests {
         ));
         let (rpc, _receiver) = rpc_pubsub_service::test_connection(&subscriptions);
 
-        io.merge(rpc.into_rpc());
+        io.merge(rpc.into_rpc()).unwrap();
 
         let tx = system_transaction::transfer(&alice, &bob_pubkey, 20, blockhash);
         let req = format!(
@@ -994,7 +994,7 @@ mod tests {
         let _ = io.raw_json_request(&req, 0).await.unwrap();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"accountUnsubscribe","params":[0]}"#;
-        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
 
         let expected = r#"{"jsonrpc":"2.0","result":true,"id":1}"#;
         let expected: Response<bool> = serde_json::from_str(expected).unwrap();
@@ -1004,7 +1004,7 @@ mod tests {
 
         // Test bad parameter
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"accountUnsubscribe","params":[1]}"#;
-        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
         let expected = r#"{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid subscription id."},"id":1}"#;
         let expected: Response<()> = serde_json::from_str(expected).unwrap();
 
