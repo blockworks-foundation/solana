@@ -975,7 +975,7 @@ mod tests {
             let rpc = RpcHandler::start_with_config(TestConfig { account_indexes });
 
             let bank = rpc.root_bank();
-            let RpcHandler { io, meta, .. } = rpc;
+            let RpcHandler { io,  .. } = rpc;
 
             // Pubkeys
             let token_account1_pubkey = Pubkey::new_unique();
@@ -1283,7 +1283,7 @@ mod tests {
         let rpc = RpcHandler::start_with_config(TestConfig { account_indexes });
 
         let bank = rpc.root_bank();
-        let RpcHandler { io, meta, .. } = rpc;
+        let RpcHandler { io,  .. } = rpc;
 
         // Add some basic system owned account
         let mut dummy_account_pubkeys = Vec::with_capacity(NUM_DUMMY_ACCOUNTS);

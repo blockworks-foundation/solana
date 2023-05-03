@@ -5747,11 +5747,8 @@ pub mod tests {
             },
             "id": 1,
         });
-        let expected: Response<RpcResponse<RpcSimulateTransactionResult>> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<RpcResponse<RpcSimulateTransactionResult>> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+
+        assert_eq!(res.result, expected.to_string());
 
         // Too many input accounts...
         let req = format!(
@@ -5783,11 +5780,8 @@ pub mod tests {
             },
             "id":1
         });
-        let expected: Response<()> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<()> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+
+        assert_eq!(res.result, expected.to_string());
 
         // Bad signature with sigVerify=true
         let req = format!(
@@ -5803,11 +5797,7 @@ pub mod tests {
             "id":1
         });
 
-        let expected: Response<()> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<()> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+        assert_eq!(res.result, expected.to_string());
 
         // Bad signature with sigVerify=false
         let req = format!(
@@ -5831,11 +5821,7 @@ pub mod tests {
             },
             "id": 1,
         });
-        let expected: Response<RpcResponse<RpcSimulateTransactionResult>> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<RpcResponse<RpcSimulateTransactionResult>> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+        assert_eq!(res.result, expected.to_string());
 
         // Bad signature with default sigVerify setting (false)
         let req = format!(
@@ -5859,11 +5845,7 @@ pub mod tests {
             },
             "id": 1,
         });
-        let expected: Response<RpcResponse<RpcSimulateTransactionResult>> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<RpcResponse<RpcSimulateTransactionResult>> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+        assert_eq!(res.result, expected.to_string());
 
         // Enabled both sigVerify=true and replaceRecentBlockhash=true
         let req = format!(
@@ -5883,11 +5865,7 @@ pub mod tests {
             },
             "id":1
         });
-        let expected: Response<()> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<()> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+        assert_eq!(res.result, expected.to_string());
 
         // Bad recent blockhash with replaceRecentBlockhash=false
         let req = format!(
@@ -5909,11 +5887,7 @@ pub mod tests {
             "id":1
         });
 
-        let expected: Response<RpcResponse<RpcSimulateTransactionResult>> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<RpcResponse<RpcSimulateTransactionResult>> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+        assert_eq!(res.result, expected.to_string());
 
         // Bad recent blockhash with replaceRecentBlockhash=true
         let req = format!(
@@ -5938,11 +5912,7 @@ pub mod tests {
             "id": 1,
         });
 
-        let expected: Response<RpcResponse<RpcSimulateTransactionResult>> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<RpcResponse<RpcSimulateTransactionResult>> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+        assert_eq!(res.result, expected.to_string());
     }
 
     #[tokio::test]
@@ -6069,11 +6039,8 @@ pub mod tests {
             },
             "id": 1
         });
-        let expected: Response<RpcResponse<RpcBlockhashFeeCalculator>> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<RpcResponse<RpcBlockhashFeeCalculator>> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+
+        assert_eq!(res.result, expected.to_string());
     }
 
     #[tokio::test]
@@ -6100,11 +6067,8 @@ pub mod tests {
             },
             "id": 1
         });
-        let expected: Response<RpcResponse<RpcFees>> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<RpcResponse<RpcFees>> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+
+        assert_eq!(res.result, expected.to_string());
     }
 
     #[tokio::test]
@@ -6131,11 +6095,7 @@ pub mod tests {
             },
             "id": 1
         });
-        let expected: Response<RpcResponse<Option<RpcFeeCalculator>>> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<RpcResponse<Option<RpcFeeCalculator>>> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+        assert_eq!(res.result, expected.to_string());
 
         // Expired (non-existent) blockhash
         let req = format!(
@@ -6151,16 +6111,12 @@ pub mod tests {
             },
             "id": 1
         });
-        let expected: Response<RpcResponse<Option<RpcFeeCalculator>>> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<RpcResponse<Option<RpcFeeCalculator>>> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+        assert_eq!(res.result, expected.to_string());
     }
 
     #[tokio::test]
     async fn test_rpc_get_fee_rate_governor() {
-        let RpcHandler { meta, io, .. } = RpcHandler::start();
+        let RpcHandler { io, .. } = RpcHandler::start();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"getFeeRateGovernor"}"#;
         let (res, _) = io.raw_json_request(req, 1).await.unwrap();
@@ -6180,11 +6136,8 @@ pub mod tests {
             },
             "id": 1
         });
-        let expected: Response<RpcResponse<RpcFeeRateGovernor>> =
-            serde_json::from_value(expected).expect("expected response deserialization");
-        let result: Response<RpcResponse<RpcFeeRateGovernor>> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+        
+        assert_eq!(res.result, expected.to_string());
     }
 
     #[tokio::test]
@@ -6199,11 +6152,8 @@ pub mod tests {
         let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
         let expected =
             r#"{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid request"},"id":1}"#;
-        let expected: Response<()> =
-            serde_json::from_str(expected).expect("expected response deserialization");
-        let result: Response<()> =
-            serde_json::from_str(&res.result).expect("actual response deserialization");
-        assert_eq!(result.payload, expected.payload);
+
+        assert_eq!(res.result, expected.to_string());
     }
 
     #[tokio::test]
