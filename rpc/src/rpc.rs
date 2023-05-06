@@ -4564,19 +4564,23 @@ pub mod tests {
 
     fn parse_success_result<T: DeserializeOwned>(response: MethodResponse) -> T {
         if response.success {
-            return serde_json::from_str(&response.result).unwrap();
+            let value: Value = serde_json::from_str(&response.result).unwrap();
+            return serde_json::from_value(value["result"].to_owned()).unwrap();
         }
 
         panic!("Expected success but received: {:?}", response.result);
     }
 
     fn parse_failure_response(response: MethodResponse) -> (i32, String) {
-        if !response.success {
-            let res: Value = serde_json::from_str(&response.result).unwrap();
-            return (
-                res["code"].as_i64().unwrap() as i32,
-                res["message"].to_string(),
-            );
+        let res: Value = serde_json::from_str(&response.result).unwrap();
+        if let Some(error) = res.get("error") {
+            return (error["code"].as_i64().unwrap() as i32, {
+                if let Value::String(string) = &error["message"] {
+                    string.to_owned()
+                } else {
+                    panic!("Expected message to be string");
+                }
+            });
         }
 
         panic!("Expected failure but received: {:?}", response.result);
@@ -4679,7 +4683,7 @@ pub mod tests {
 
         async fn handle_request(&self, req: serde_json::Value) -> MethodResponse {
             self.io
-                .raw_json_request(&req.to_string(), 0)
+                .raw_json_request(&req.to_string(), 1)
                 .await
                 .expect("no response")
                 .0
@@ -5723,7 +5727,8 @@ pub mod tests {
             solana_sdk::pubkey::new_rand(),
             bob_pubkey,
         );
-        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
+
         let expected = json!({
             "jsonrpc": "2.0",
             "result": {
@@ -5752,7 +5757,8 @@ pub mod tests {
             "id": 1,
         });
 
-        assert_eq!(res.result, expected.to_string());
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
 
         // Too many input accounts...
         let req = format!(
@@ -5776,6 +5782,7 @@ pub mod tests {
             }}"#,
         );
         let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
+
         let expected = json!({
             "jsonrpc":"2.0",
             "error": {
@@ -5785,13 +5792,15 @@ pub mod tests {
             "id":1
         });
 
-        assert_eq!(res.result, expected.to_string());
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
 
         // Bad signature with sigVerify=true
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["{tx_badsig_serialized_encoded}", {{"sigVerify": true}}]}}"#,
         );
         let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
+
         let expected = json!({
             "jsonrpc":"2.0",
             "error": {
@@ -5801,13 +5810,15 @@ pub mod tests {
             "id":1
         });
 
-        assert_eq!(res.result, expected.to_string());
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
 
         // Bad signature with sigVerify=false
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["{tx_serialized_encoded}", {{"sigVerify": false}}]}}"#,
         );
         let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
+
         let expected = json!({
             "jsonrpc": "2.0",
             "result": {
@@ -5825,13 +5836,16 @@ pub mod tests {
             },
             "id": 1,
         });
-        assert_eq!(res.result, expected.to_string());
+
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
 
         // Bad signature with default sigVerify setting (false)
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["{tx_serialized_encoded}"]}}"#,
         );
         let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
+
         let expected = json!({
             "jsonrpc": "2.0",
             "result": {
@@ -5849,7 +5863,9 @@ pub mod tests {
             },
             "id": 1,
         });
-        assert_eq!(res.result, expected.to_string());
+
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
 
         // Enabled both sigVerify=true and replaceRecentBlockhash=true
         let req = format!(
@@ -5875,7 +5891,8 @@ pub mod tests {
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["{tx_invalid_recent_blockhash}", {{"replaceRecentBlockhash": false}}]}}"#,
         );
-        let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
+
         let expected = json!({
             "jsonrpc":"2.0",
             "result": {
@@ -5891,13 +5908,15 @@ pub mod tests {
             "id":1
         });
 
-        assert_eq!(res.result, expected.to_string());
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
 
         // Bad recent blockhash with replaceRecentBlockhash=true
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"simulateTransaction","params":["{tx_invalid_recent_blockhash}", {{"replaceRecentBlockhash": true}}]}}"#,
         );
         let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
+
         let expected = json!({
             "jsonrpc": "2.0",
             "result": {
@@ -5916,7 +5935,8 @@ pub mod tests {
             "id": 1,
         });
 
-        assert_eq!(res.result, expected.to_string());
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
     }
 
     #[tokio::test]
@@ -6041,7 +6061,9 @@ pub mod tests {
             "id": 1
         });
 
-        assert_eq!(res.result, expected.to_string());
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+
+        assert_eq!(result, expected);
     }
 
     #[tokio::test]
@@ -6069,7 +6091,9 @@ pub mod tests {
             "id": 1
         });
 
-        assert_eq!(res.result, expected.to_string());
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+
+        assert_eq!(result, expected);
     }
 
     #[tokio::test]
@@ -6096,7 +6120,9 @@ pub mod tests {
             },
             "id": 1
         });
-        assert_eq!(res.result, expected.to_string());
+
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
 
         // Expired (non-existent) blockhash
         let req = format!(
@@ -6112,7 +6138,9 @@ pub mod tests {
             },
             "id": 1
         });
-        assert_eq!(res.result, expected.to_string());
+
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
     }
 
     #[tokio::test]
@@ -6138,7 +6166,8 @@ pub mod tests {
             "id": 1
         });
 
-        assert_eq!(res.result, expected.to_string());
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
     }
 
     #[tokio::test]
@@ -6151,10 +6180,17 @@ pub mod tests {
             r#"{{"jsonrpc":"2.0","id":1,"method":"requestAirdrop","params":["{bob_pubkey}", 50]}}"#
         );
         let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
-        let expected =
-            r#"{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid request"},"id":1}"#;
+        let expected = json!{{
+            "jsonrpc":"2.0",
+            "error": {
+                "code":-32600,
+                "message":"Invalid request"
+            },
+            "id":1
+        }};
 
-        assert_eq!(res.result, expected.to_string());
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
     }
 
     #[tokio::test]
@@ -7467,7 +7503,7 @@ pub mod tests {
                     "params":["{owner}", {{"mint": "{mint}"}}, {{"encoding":"base64"}}]
                 }}"#,
             );
-            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
             let result: Value =
                 serde_json::from_str(&res.result).expect("actual response deserialization");
             let accounts: Vec<RpcKeyedAccount> =
@@ -7485,7 +7521,7 @@ pub mod tests {
                 owner,
                 solana_sdk::pubkey::new_rand(),
             );
-            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
             let result: Value =
                 serde_json::from_str(&res.result).expect("actual response deserialization");
             assert!(result.get("error").is_some());
@@ -7579,7 +7615,7 @@ pub mod tests {
                 delegate,
                 solana_sdk::pubkey::new_rand(),
             );
-            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
             let result: Value =
                 serde_json::from_str(&res.result).expect("actual response deserialization");
             assert!(result.get("error").is_some());
@@ -7595,7 +7631,7 @@ pub mod tests {
                 solana_sdk::pubkey::new_rand(),
                 program_id,
             );
-            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
             let result: Value =
                 serde_json::from_str(&res.result).expect("actual response deserialization");
             let accounts: Vec<RpcKeyedAccount> =
@@ -7647,7 +7683,7 @@ pub mod tests {
             let req = format!(
                 r#"{{"jsonrpc":"2.0","id":1,"method":"getTokenLargestAccounts","params":["{new_mint}"]}}"#,
             );
-            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
             let result: Value =
                 serde_json::from_str(&res.result).expect("actual response deserialization");
             let largest_accounts: Vec<RpcTokenAccountBalance> =
@@ -7804,7 +7840,7 @@ pub mod tests {
             let req = format!(
                 r#"{{"jsonrpc":"2.0","id":1,"method":"getAccountInfo","params":["{token_account_pubkey}", {{"encoding": "jsonParsed"}}]}}"#,
             );
-            let (res, _) = io.raw_json_request(&req, 0).await.unwrap();
+            let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
             let result: Value =
                 serde_json::from_str(&res.result).expect("actual response deserialization");
             let mut expected_value = json!({
@@ -8116,7 +8152,7 @@ pub mod tests {
 
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment":"confirmed"}]}"#;
-        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 0);
@@ -8137,7 +8173,7 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 2);
@@ -8156,7 +8192,7 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 2);
@@ -8175,7 +8211,7 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 2);
@@ -8195,7 +8231,7 @@ pub mod tests {
         );
         let req =
             r#"{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment": "confirmed"}]}"#;
-        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
         let json: Value = serde_json::from_str(&res.result).unwrap();
         let slot: Slot = serde_json::from_value(json["result"].clone()).unwrap();
         assert_eq!(slot, 3);

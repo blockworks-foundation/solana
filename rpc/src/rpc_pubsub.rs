@@ -486,6 +486,7 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
 mod tests {
 
     use jsonrpsee::{types::response::Response, RpcModule};
+    use serde_json::Value;
     use {
         super::*,
         crate::{
@@ -602,16 +603,16 @@ mod tests {
         let expected_res =
             RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult { err: None });
         let expected = json!({
-           "jsonrpc": "2.0",
-           "method": "signatureNotification",
-           "params": {
-               "result": {
-                   "context": { "slot": 0 },
-                   "value": expected_res,
-               },
-               "subscription": 0,
-           }
-        });
+        //           "jsonrpc": "2.0",
+                   "method": "signatureNotification",
+                   "params": {
+                       "result": {
+                           "context": { "slot": 0 },
+                           "value": expected_res,
+                       },
+                       "subscription": 0,
+                   }
+                });
 
         assert_eq!(
             expected,
@@ -637,16 +638,16 @@ mod tests {
         let expected_res =
             RpcSignatureResult::ReceivedSignature(ReceivedSignatureResult::ReceivedSignature);
         let expected = json!({
-           "jsonrpc": "2.0",
-           "method": "signatureNotification",
-           "params": {
-               "result": {
-                   "context": { "slot": received_slot },
-                   "value": expected_res,
-               },
-               "subscription": 1,
-           }
-        });
+        //           "jsonrpc": "2.0",
+                   "method": "signatureNotification",
+                   "params": {
+                       "result": {
+                           "context": { "slot": received_slot },
+                           "value": expected_res,
+                       },
+                       "subscription": 1,
+                   }
+                });
         assert_eq!(
             expected,
             serde_json::from_str::<serde_json::Value>(&response).unwrap(),
@@ -671,16 +672,16 @@ mod tests {
         let expected_res =
             RpcSignatureResult::ReceivedSignature(ReceivedSignatureResult::ReceivedSignature);
         let expected = json!({
-           "jsonrpc": "2.0",
-           "method": "signatureNotification",
-           "params": {
-               "result": {
-                   "context": { "slot": received_slot },
-                   "value": expected_res,
-               },
-               "subscription": 2,
-           }
-        });
+        //           "jsonrpc": "2.0",
+                   "method": "signatureNotification",
+                   "params": {
+                       "result": {
+                           "context": { "slot": received_slot },
+                           "value": expected_res,
+                       },
+                       "subscription": 2,
+                   }
+                });
         assert_eq!(
             expected,
             serde_json::from_str::<serde_json::Value>(&response).unwrap(),
@@ -942,23 +943,23 @@ mod tests {
         )
         .unwrap();
         let expected = json!({
-           "jsonrpc": "2.0",
-           "method": "accountNotification",
-           "params": {
-               "result": {
-                   "context": { "slot": 1 },
-                   "value": {
-                       "owner": system_program::id().to_string(),
-                       "lamports": 100,
-                       "data": expected_data,
-                       "executable": false,
-                       "rentEpoch": u64::MAX,
-                       "space": account.data().len(),
-                   },
-               },
-               "subscription": 0,
-           }
-        });
+        //           "jsonrpc": "2.0",
+                   "method": "accountNotification",
+                   "params": {
+                       "result": {
+                           "context": { "slot": 1 },
+                           "value": {
+                               "owner": system_program::id().to_string(),
+                               "lamports": 100,
+                               "data": expected_data,
+                               "executable": false,
+                               "rentEpoch": u64::MAX,
+                               "space": account.data().len(),
+                           },
+                       },
+                       "subscription": 0,
+                   }
+                });
 
         let response = receiver.recv();
         assert_eq!(
@@ -991,10 +992,10 @@ mod tests {
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"accountSubscribe","params":["{bob_pubkey}"]}}"#
         );
-        let _ = io.raw_json_request(&req, 0).await.unwrap();
+        let _ = io.raw_json_request(&req, 1).await.unwrap();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"accountUnsubscribe","params":[0]}"#;
-        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
 
         let expected = r#"{"jsonrpc":"2.0","result":true,"id":1}"#;
         let expected: Response<bool> = serde_json::from_str(expected).unwrap();
@@ -1004,7 +1005,7 @@ mod tests {
 
         // Test bad parameter
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"accountUnsubscribe","params":[1]}"#;
-        let (res, _) = io.raw_json_request(req, 0).await.unwrap();
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
         let expected = r#"{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid subscription id."},"id":1}"#;
         let expected: Response<()> = serde_json::from_str(expected).unwrap();
 
@@ -1127,23 +1128,23 @@ mod tests {
         };
         subscriptions.notify_subscribers(commitment_slots);
         let expected = json!({
-           "jsonrpc": "2.0",
-           "method": "accountNotification",
-           "params": {
-               "result": {
-                   "context": { "slot": 1 },
-                   "value": {
-                       "owner": system_program::id().to_string(),
-                       "lamports": 100,
-                       "data": "",
-                       "executable": false,
-                       "rentEpoch": u64::MAX,
-                       "space": 0,
-                   },
-               },
-               "subscription": 0,
-           }
-        });
+        //           "jsonrpc": "2.0",
+                   "method": "accountNotification",
+                   "params": {
+                       "result": {
+                           "context": { "slot": 1 },
+                           "value": {
+                               "owner": system_program::id().to_string(),
+                               "lamports": 100,
+                               "data": "",
+                               "executable": false,
+                               "rentEpoch": u64::MAX,
+                               "space": 0,
+                           },
+                       },
+                       "subscription": 0,
+                   }
+                });
         let response = receiver.recv();
         assert_eq!(
             expected,
@@ -1170,17 +1171,21 @@ mod tests {
         rpc_subscriptions.notify_slot(0, 0, 0);
 
         // Test slot confirmation notification
-        let response = receiver.recv();
-        let expected_res = SlotInfo {
-            parent: 0,
-            slot: 0,
-            root: 0,
-        };
-        let expected_res_str = serde_json::to_string(&expected_res).unwrap();
+        let response: Value = serde_json::from_str(&receiver.recv()).unwrap();
 
-        let expected = format!(
-            r#"{{"jsonrpc":"2.0","method":"slotNotification","params":{{"result":{expected_res_str},"subscription":0}}}}"#
-        );
+        let expected = json! {{
+            // "jsonrpc":"2.0",
+            "method":"slotNotification",
+            "params":{
+                "result": SlotInfo {
+                    parent: 0,
+                    slot: 0,
+                    root: 0,
+                },
+                "subscription": 0
+            }
+        }};
+
         assert_eq!(expected, response);
     }
 
@@ -1201,17 +1206,22 @@ mod tests {
         let sub_id = rpc.slot_subscribe().unwrap();
 
         rpc_subscriptions.notify_slot(0, 0, 0);
-        let response = receiver.recv();
-        let expected_res = SlotInfo {
-            parent: 0,
-            slot: 0,
-            root: 0,
-        };
-        let expected_res_str = serde_json::to_string(&expected_res).unwrap();
 
-        let expected = format!(
-            r#"{{"jsonrpc":"2.0","method":"slotNotification","params":{{"result":{expected_res_str},"subscription":0}}}}"#
-        );
+        let response: Value = serde_json::from_str(&receiver.recv()).unwrap();
+
+        let expected = json! {{
+        //  "jsonrpc": "2.0",
+            "method":"slotNotification",
+            "params": {
+                "result": {
+                    "parent": 0,
+                    "slot": 0,
+                    "root": 0,
+                },
+                "subscription": 0
+            }
+        }};
+
         assert_eq!(expected, response);
 
         assert!(rpc.slot_unsubscribe(42.into()).is_err());
@@ -1262,11 +1272,23 @@ mod tests {
             Signature::default(),
         );
 
-        let response = receiver.recv();
-        assert_eq!(
-            response,
-            r#"{"jsonrpc":"2.0","method":"voteNotification","params":{"result":{"votePubkey":"11111111111111111111111111111111","slots":[1,2],"hash":"11111111111111111111111111111111","timestamp":null,"signature":"1111111111111111111111111111111111111111111111111111111111111111"},"subscription":0}}"#
-        );
+        let response: Value = serde_json::from_str(&receiver.recv()).unwrap();
+        let expected = json! {{
+        // WARN:   "jsonrpc":"2.0",
+            "method":"voteNotification",
+            "params": {
+                "result": {
+                    "votePubkey":"11111111111111111111111111111111",
+                    "slots":[1,2],
+                    "hash":"11111111111111111111111111111111",
+                    "timestamp":null,
+                    "signature":"1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "subscription":0
+            }
+        }};
+
+        assert_eq!(response, expected);
     }
 
     #[test]
