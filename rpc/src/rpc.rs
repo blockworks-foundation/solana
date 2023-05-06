@@ -786,8 +786,7 @@ impl JsonRpcRequestProcessor {
                 );
             } else {
                 return Err(invalid_params(
-                    "Invalid slot range: leader schedule for epoch {epoch} is unavailable"
-                        .to_string(),
+                    format!("Invalid slot range: leader schedule for epoch {epoch} is unavailable")
                 ));
             }
 
@@ -5877,6 +5876,7 @@ pub mod tests {
             })
         );
         let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
+
         let expected = json!({
             "jsonrpc":"2.0",
             "error": {
@@ -5885,7 +5885,9 @@ pub mod tests {
             },
             "id":1
         });
-        assert_eq!(res.result, expected.to_string());
+
+        let result: Value = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result, expected);
 
         // Bad recent blockhash with replaceRecentBlockhash=false
         let req = format!(
