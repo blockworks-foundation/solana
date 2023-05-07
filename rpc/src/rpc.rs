@@ -192,7 +192,7 @@ pub struct JsonRpcRequestProcessor {
     bank_forks: Arc<RwLock<BankForks>>,
     block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
     blockstore: Arc<Blockstore>,
-    config: JsonRpcConfig,
+    config: Arc<JsonRpcConfig>,
     snapshot_config: Option<SnapshotConfig>,
     #[allow(dead_code)]
     validator_exit: Arc<RwLock<Exit>>,
@@ -200,7 +200,7 @@ pub struct JsonRpcRequestProcessor {
     cluster_info: Arc<ClusterInfo>,
     genesis_hash: Hash,
     transaction_sender: Arc<Mutex<Sender<TransactionInfo>>>,
-    bigtable_ledger_storage: Option<solana_storage_bigtable::LedgerStorage>,
+    bigtable_ledger_storage: Arc<Option<solana_storage_bigtable::LedgerStorage>>,
     optimistically_confirmed_bank: Arc<RwLock<OptimisticallyConfirmedBank>>,
     largest_accounts_cache: Arc<RwLock<LargestAccountsCache>>,
     max_slots: Arc<MaxSlots>,
@@ -318,7 +318,7 @@ impl JsonRpcRequestProcessor {
         let (sender, receiver) = unbounded();
         (
             Self {
-                config,
+                config: Arc::new(config),
                 snapshot_config,
                 bank_forks,
                 block_commitment_cache,
@@ -328,7 +328,7 @@ impl JsonRpcRequestProcessor {
                 cluster_info,
                 genesis_hash,
                 transaction_sender: Arc::new(Mutex::new(sender)),
-                bigtable_ledger_storage,
+                bigtable_ledger_storage: Arc::new(bigtable_ledger_storage),
                 optimistically_confirmed_bank,
                 largest_accounts_cache,
                 max_slots,
@@ -379,7 +379,7 @@ impl JsonRpcRequestProcessor {
         );
 
         Self {
-            config: JsonRpcConfig::default(),
+            config: Arc::new(JsonRpcConfig::default()),
             snapshot_config: None,
             bank_forks,
             block_commitment_cache: Arc::new(RwLock::new(BlockCommitmentCache::new(
@@ -399,7 +399,7 @@ impl JsonRpcRequestProcessor {
             cluster_info,
             genesis_hash,
             transaction_sender: Arc::new(Mutex::new(sender)),
-            bigtable_ledger_storage: None,
+            bigtable_ledger_storage: Arc::new(None),
             optimistically_confirmed_bank: Arc::new(RwLock::new(OptimisticallyConfirmedBank {
                 bank: bank.clone(),
             })),
@@ -785,9 +785,9 @@ impl JsonRpcRequestProcessor {
                         .take(limit.saturating_sub(slot_leaders.len())),
                 );
             } else {
-                return Err(invalid_params(
-                    format!("Invalid slot range: leader schedule for epoch {epoch} is unavailable")
-                ));
+                return Err(invalid_params(format!(
+                    "Invalid slot range: leader schedule for epoch {epoch} is unavailable"
+                )));
             }
 
             epoch += 1;
@@ -1115,7 +1115,7 @@ impl JsonRpcRequestProcessor {
                     Ok(encoded_block)
                 };
                 if result.is_err() {
-                    if let Some(bigtable_ledger_storage) = &self.bigtable_ledger_storage {
+                    if let Some(bigtable_ledger_storage) = &*self.bigtable_ledger_storage {
                         let bigtable_result =
                             bigtable_ledger_storage.get_confirmed_block(slot).await;
                         self.check_bigtable_result(&bigtable_result)?;
@@ -1206,7 +1206,7 @@ impl JsonRpcRequestProcessor {
             // If the starting slot is lower than what's available in blockstore assume the entire
             // [start_slot..end_slot] can be fetched from BigTable. This range should not ever run
             // into unfinalized confirmed blocks due to MAX_GET_CONFIRMED_BLOCKS_RANGE
-            if let Some(bigtable_ledger_storage) = &self.bigtable_ledger_storage {
+            if let Some(bigtable_ledger_storage) = &*self.bigtable_ledger_storage {
                 return bigtable_ledger_storage
                     .get_confirmed_blocks(start_slot, (end_slot - start_slot) as usize + 1) // increment limit by 1 to ensure returned range is inclusive of both start_slot and end_slot
                     .await
@@ -1273,7 +1273,7 @@ impl JsonRpcRequestProcessor {
             // If the starting slot is lower than what's available in blockstore assume the entire
             // range can be fetched from BigTable. This range should not ever run into unfinalized
             // confirmed blocks due to MAX_GET_CONFIRMED_BLOCKS_RANGE
-            if let Some(bigtable_ledger_storage) = &self.bigtable_ledger_storage {
+            if let Some(bigtable_ledger_storage) = &*self.bigtable_ledger_storage {
                 return Ok(bigtable_ledger_storage
                     .get_confirmed_blocks(start_slot, limit)
                     .await
@@ -1329,7 +1329,7 @@ impl JsonRpcRequestProcessor {
             let result = self.blockstore.get_block_time(slot);
             self.check_blockstore_root(&result, slot)?;
             if result.is_err() || matches!(result, Ok(None)) {
-                if let Some(bigtable_ledger_storage) = &self.bigtable_ledger_storage {
+                if let Some(bigtable_ledger_storage) = &*self.bigtable_ledger_storage {
                     let bigtable_result = bigtable_ledger_storage.get_confirmed_block(slot).await;
                     self.check_bigtable_result(&bigtable_result)?;
                     return Ok(bigtable_result
@@ -1422,7 +1422,7 @@ impl JsonRpcRequestProcessor {
                     })
                 {
                     Some(status)
-                } else if let Some(bigtable_ledger_storage) = &self.bigtable_ledger_storage {
+                } else if let Some(bigtable_ledger_storage) = &*self.bigtable_ledger_storage {
                     bigtable_ledger_storage
                         .get_signature_status(&signature)
                         .await
@@ -1531,7 +1531,7 @@ impl JsonRpcRequestProcessor {
                     }
                 }
                 None => {
-                    if let Some(bigtable_ledger_storage) = &self.bigtable_ledger_storage {
+                    if let Some(bigtable_ledger_storage) = &*self.bigtable_ledger_storage {
                         return bigtable_ledger_storage
                             .get_confirmed_transaction(&signature)
                             .await
@@ -1634,7 +1634,7 @@ impl JsonRpcRequestProcessor {
             };
 
             if results.len() < limit {
-                if let Some(bigtable_ledger_storage) = &self.bigtable_ledger_storage {
+                if let Some(bigtable_ledger_storage) = &*self.bigtable_ledger_storage {
                     let mut bigtable_before = before;
                     if !results.is_empty() {
                         limit -= results.len();
@@ -1702,7 +1702,7 @@ impl JsonRpcRequestProcessor {
             .get_first_available_block()
             .unwrap_or_default();
 
-        if let Some(bigtable_ledger_storage) = &self.bigtable_ledger_storage {
+        if let Some(bigtable_ledger_storage) = &*self.bigtable_ledger_storage {
             let bigtable_slot = bigtable_ledger_storage
                 .get_first_available_block()
                 .await
@@ -5972,7 +5972,7 @@ pub mod tests {
         let recent_blockhash = bank.confirmed_last_blockhash();
         let confirmed_block_signatures = rpc.create_test_transactions_and_populate_blockstore();
         let RpcHandler {
-            mut meta,
+            meta,
             io,
             mint_keypair,
             ..
@@ -6028,7 +6028,12 @@ pub mod tests {
         assert_eq!(expected_res, result.as_ref().unwrap().status);
 
         // disable rpc-tx-history, but attempt historical query
-        meta.config.enable_rpc_transaction_history = false;
+        let config = JsonRpcConfig {
+            enable_rpc_transaction_history: false,
+            ..Default::default()
+        };
+
+        let RpcHandler { io, .. } = RpcHandler::start_with_config(config);
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"getSignatureStatuses","params":[["{}"], {{"searchTransactionHistory": true}}]}}"#,
             confirmed_block_signatures[1]
@@ -6182,7 +6187,7 @@ pub mod tests {
             r#"{{"jsonrpc":"2.0","id":1,"method":"requestAirdrop","params":["{bob_pubkey}", 50]}}"#
         );
         let (res, _) = io.raw_json_request(&req, 1).await.unwrap();
-        let expected = json!{{
+        let expected = json! {{
             "jsonrpc":"2.0",
             "error": {
                 "code":-32600,
@@ -6634,7 +6639,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_get_block() {
-        let mut rpc = RpcHandler::start();
+        let rpc = RpcHandler::start();
         let confirmed_block_signatures = rpc.create_test_transactions_and_populate_blockstore();
 
         let request = create_test_request("getBlock", Some(json!([0u64])));
@@ -6729,7 +6734,12 @@ pub mod tests {
         }
 
         // disable rpc-tx-history
-        rpc.meta.config.enable_rpc_transaction_history = false;
+        let config = JsonRpcConfig {
+            enable_rpc_transaction_history: false,
+            ..Default::default()
+        };
+
+        let mut rpc = RpcHandler::start_with_config(config);
         let request = create_test_request("getBlock", Some(json!([0u64])));
         let response = parse_failure_response(rpc.handle_request(request).await);
         let expected = (
