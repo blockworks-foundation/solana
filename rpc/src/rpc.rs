@@ -2499,41 +2499,55 @@ fn _send_transaction(
 pub mod rpc_minimal {
     use super::*;
 
-    #[rpc(server)]
+    #[rpc(server, client)]
     pub trait Minimal {
         #[method(name = "getBalance")]
         fn get_balance(
             &self,
             pubkey_str: String,
             config: Option<RpcContextConfig>,
-        ) -> Result<RpcResponse<u64>>;
+        ) -> std::result::Result<RpcResponse<u64>, ErrorObject<'static>>;
 
         #[method(name = "getEpochInfo")]
-        fn get_epoch_info(&self, config: Option<RpcContextConfig>) -> Result<EpochInfo>;
+        fn get_epoch_info(
+            &self,
+            config: Option<RpcContextConfig>,
+        ) -> std::result::Result<EpochInfo, ErrorObject<'static>>;
 
         #[method(name = "getGenesisHash")]
-        fn get_genesis_hash(&self) -> Result<String>;
+        fn get_genesis_hash(&self) -> std::result::Result<String, ErrorObject<'static>>;
 
         #[method(name = "getHealth")]
-        fn get_health(&self) -> Result<String>;
+        fn get_health(&self) -> std::result::Result<String, ErrorObject<'static>>;
 
         #[method(name = "getIdentity")]
-        fn get_identity(&self) -> Result<RpcIdentity>;
+        fn get_identity(&self) -> std::result::Result<RpcIdentity, ErrorObject<'static>>;
 
         #[method(name = "getSlot")]
-        fn get_slot(&self, config: Option<RpcContextConfig>) -> Result<Slot>;
+        fn get_slot(
+            &self,
+            config: Option<RpcContextConfig>,
+        ) -> std::result::Result<Slot, ErrorObject<'static>>;
 
         #[method(name = "getBlockHeight")]
-        fn get_block_height(&self, config: Option<RpcContextConfig>) -> Result<u64>;
+        fn get_block_height(
+            &self,
+            config: Option<RpcContextConfig>,
+        ) -> std::result::Result<u64, ErrorObject<'static>>;
 
         #[method(name = "getHighestSnapshotSlot")]
-        fn get_highest_snapshot_slot(&self) -> Result<RpcSnapshotSlotInfo>;
+        fn get_highest_snapshot_slot(
+            &self,
+        ) -> std::result::Result<RpcSnapshotSlotInfo, ErrorObject<'static>>;
 
         #[method(name = "getTransactionCount")]
-        fn get_transaction_count(&self, config: Option<RpcContextConfig>) -> Result<u64>;
+        fn get_transaction_count(
+            &self,
+            config: Option<RpcContextConfig>,
+        ) -> std::result::Result<u64, ErrorObject<'static>>;
 
         #[method(name = "getVersion")]
-        fn get_version(&self) -> Result<RpcVersionInfo>;
+        fn get_version(&self) -> std::result::Result<RpcVersionInfo, ErrorObject<'static>>;
 
         // TODO: Refactor `solana-validator wait-for-restart-window` to not require this method, so
         //       it can be removed from rpc_minimal
@@ -2541,7 +2555,7 @@ pub mod rpc_minimal {
         fn get_vote_accounts(
             &self,
             config: Option<RpcGetVoteAccountsConfig>,
-        ) -> Result<RpcVoteAccountStatus>;
+        ) -> std::result::Result<RpcVoteAccountStatus, ErrorObject<'static>>;
 
         // TODO: Refactor `solana-validator wait-for-restart-window` to not require this method, so
         //       it can be removed from rpc_minimal
@@ -2550,7 +2564,8 @@ pub mod rpc_minimal {
             &self,
             options: Option<RpcLeaderScheduleConfigWrapper>,
             config: Option<RpcLeaderScheduleConfig>,
-        ) -> Result<Option<RpcLeaderSchedule>>;
+        ) -> std::result::Result<Option<RpcLeaderSchedule>, ErrorObject<'static>>;
+
     }
 
     pub struct MinimalImpl {
@@ -4460,6 +4475,8 @@ pub fn populate_blockstore_for_tests(
 
 #[cfg(test)]
 pub mod tests {
+    use jsonrpsee::http_client::HttpClientBuilder;
+    use jsonrpsee::server::ServerBuilder;
     use jsonrpsee::types::response::Response;
     use jsonrpsee::{MethodResponse, RpcModule};
     use serde_json::Value;
@@ -4953,27 +4970,36 @@ pub mod tests {
         let mint_pubkey = genesis.mint_keypair.pubkey();
         let bank = Arc::new(Bank::new_for_tests(&genesis.genesis_config));
         let connection_cache = Arc::new(ConnectionCache::new("connection_cache_test"));
+        use rpc_minimal::{MinimalClient, MinimalImpl};
+
+        const URL: &str = "127.0.0.1:0";
+
         let meta = JsonRpcRequestProcessor::new_from_bank(
             &bank,
             SocketAddrSpace::Unspecified,
             connection_cache,
         );
 
-        let io = rpc_minimal::MinimalImpl { meta: meta.clone() }.into_rpc();
+        let server = ServerBuilder::new()
+            .build(URL.parse::<SocketAddr>().unwrap())
+            .await
+            .unwrap();
+        
+        let addr = server.local_addr().unwrap();
 
-        let fut = async {
-            let (client, server) =
-                local::connect_with_metadata::<rpc_minimal::gen_client::Client, _, _>(&io, meta);
+        let rpc = MinimalImpl { meta }.into_rpc();
+        let _server = server.start(rpc).unwrap();
 
-            let client = client
-                .get_balance(mint_pubkey.to_string(), None)
-                .await
-                .unwrap()
-                .value;
+        let client = HttpClientBuilder::default()
+            .build(format!("http://{addr}"))
+            .unwrap();
 
-            futures::join!(client, server)
-        };
-        let (response, _) = futures::executor::block_on(fut);
+        let response = client
+            .get_balance(mint_pubkey.to_string(), None)
+            .await
+            .unwrap()
+            .value;
+
         assert_eq!(response, 20);
     }
 
