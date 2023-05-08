@@ -9,7 +9,9 @@ use jsonrpsee::{
 };
 use tower_http::cors::MaxAge;
 
-use crate::request_middleware::{ProxyMiddleware, RequestMiddleware, RequestMiddlewareAction};
+use crate::request_middleware::{
+    RequestMiddleware, RequestMiddlewareAction, RequestMiddlewareLayer,
+};
 
 use {
     crate::{
@@ -249,12 +251,12 @@ impl RpcRequestMiddleware {
 }
 
 impl RequestMiddleware for RpcRequestMiddleware {
-    fn on_request(&self, request: &hyper::Request<hyper::Body>) -> RequestMiddlewareAction {
-        trace!("request uri: {}", request.uri());
+    fn on_request(&self, req: hyper::Request<hyper::Body>) -> RequestMiddlewareAction {
+        trace!("request uri: {}", req.uri());
 
         if let Some(ref snapshot_config) = self.snapshot_config {
-            if request.uri().path() == FULL_SNAPSHOT_REQUEST_PATH
-                || request.uri().path() == INCREMENTAL_SNAPSHOT_REQUEST_PATH
+            if req.uri().path() == FULL_SNAPSHOT_REQUEST_PATH
+                || req.uri().path() == INCREMENTAL_SNAPSHOT_REQUEST_PATH
             {
                 // Convenience redirect to the latest snapshot
                 let full_snapshot_archive_info =
@@ -263,7 +265,7 @@ impl RequestMiddleware for RpcRequestMiddleware {
                     );
                 let snapshot_archive_info =
                     if let Some(full_snapshot_archive_info) = full_snapshot_archive_info {
-                        if request.uri().path() == FULL_SNAPSHOT_REQUEST_PATH {
+                        if req.uri().path() == FULL_SNAPSHOT_REQUEST_PATH {
                             Some(full_snapshot_archive_info.snapshot_archive_info().clone())
                         } else {
                             snapshot_utils::get_highest_incremental_snapshot_archive_info(
@@ -296,22 +298,22 @@ impl RequestMiddleware for RpcRequestMiddleware {
             }
         }
 
-        if let Some(result) = process_rest(&self.bank_forks, request.uri().path()) {
+        if let Some(result) = process_rest(&self.bank_forks, req.uri().path()) {
             hyper::Response::builder()
                 .status(hyper::StatusCode::OK)
                 .body(hyper::Body::from(result))
                 .unwrap()
                 .into()
-        } else if self.is_file_get_path(request.uri().path()) {
-            self.process_file_get(request.uri().path())
-        } else if request.uri().path() == "/health" {
+        } else if self.is_file_get_path(req.uri().path()) {
+            self.process_file_get(req.uri().path())
+        } else if req.uri().path() == "/health" {
             hyper::Response::builder()
                 .status(hyper::StatusCode::OK)
                 .body(hyper::Body::from(self.health_check()))
                 .unwrap()
                 .into()
         } else {
-            RequestMiddlewareAction::Proceed
+            req.into()
         }
     }
 }
@@ -560,7 +562,7 @@ impl JsonRpcService {
                         bank_forks.clone(),
                         health.clone(),
                     );
-                    let request_middleware = ProxyMiddleware::new(request_middleware);
+                    let request_middleware = RequestMiddlewareLayer::new(request_middleware);
 
                     let cors = tower_http::cors::CorsLayer::new()
                         .allow_methods([hyper::Method::POST])
