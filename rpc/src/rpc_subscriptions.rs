@@ -1,5 +1,7 @@
 //! The `pubsub` module implements a threaded subscription service on client RPC request
 
+use jsonrpsee::types::TwoPointZero;
+
 use {
     crate::{
         optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank,
@@ -278,7 +280,7 @@ struct NotificationParams<T> {
 
 #[derive(Debug, Serialize)]
 struct Notification<T> {
-    //    jsonrpc: Option<jsonrpc_core::Version>,
+    jsonrpc: Option<TwoPointZero>,
     method: &'static str,
     params: NotificationParams<T>,
 }
@@ -292,7 +294,7 @@ impl RpcNotifier {
             let mut buf = buf.borrow_mut();
             buf.clear();
             let notification = Notification {
-                //jsonrpc: Some(jsonrpc_core::Version::V2),
+                jsonrpc: Some(TwoPointZero),
                 method: subscription.method(),
                 params: NotificationParams {
                     result: value,
@@ -1297,7 +1299,7 @@ pub(crate) mod tests {
         account_result: AccountResult,
     ) -> serde_json::Value {
         json!({
-        //  "jsonrpc": "2.0",
+            "jsonrpc": "2.0",
             "method": "accountNotification",
             "params": {
                 "result": {
@@ -1553,7 +1555,7 @@ pub(crate) mod tests {
             err: None,
         };
         let expected_resp = json!({
-           //"jsonrpc": "2.0",
+           "jsonrpc": "2.0",
            "method": "blockNotification",
            "params": {
                "result": {
@@ -1681,7 +1683,7 @@ pub(crate) mod tests {
             err: None,
         };
         let expected_resp = json!({
-           // "jsonrpc": "2.0",
+           "jsonrpc": "2.0",
            "method": "blockNotification",
            "params": {
                "result": {
@@ -1795,7 +1797,7 @@ pub(crate) mod tests {
             err: None,
         };
         let expected_resp = json!({
-           // "jsonrpc": "2.0",
+           "jsonrpc": "2.0",
            "method": "blockNotification",
            "params": {
                "result": {
@@ -1887,7 +1889,7 @@ pub(crate) mod tests {
         subscriptions.notify_subscribers(CommitmentSlots::default());
         let response = receiver.recv();
         let expected = json!({
-           // "jsonrpc": "2.0",
+           "jsonrpc": "2.0",
            "method": "programNotification",
            "params": {
                "result": {
@@ -2058,7 +2060,7 @@ pub(crate) mod tests {
         // a closure to reduce code duplications in building expected responses:
         let build_expected_resp = |slot: Slot, lamports: u64, pubkey: &str, subscription: i32| {
             json!({
-               // "jsonrpc": "2.0",
+               "jsonrpc": "2.0",
                "method": "programNotification",
                "params": {
                    "result": {
@@ -2348,7 +2350,7 @@ pub(crate) mod tests {
         // a closure to reduce code duplications in building expected responses:
         let build_expected_resp = |slot: Slot, lamports: u64, pubkey: &str, subscription: i32| {
             json!({
-               // "jsonrpc": "2.0",
+               "jsonrpc": "2.0",
                "method": "programNotification",
                "params": {
                    "result": {
@@ -2577,7 +2579,7 @@ pub(crate) mod tests {
         let expected_notification =
             |exp: Notification, expected_res: &RpcSignatureResult| -> String {
                 let json = json!({
-                    // "jsonrpc": "2.0",
+                    "jsonrpc": "2.0",
                     "method": "signatureNotification",
                     "params": {
                         "result": {
@@ -2680,7 +2682,7 @@ pub(crate) mod tests {
         let response: Value = serde_json::from_str(&receiver.recv()).unwrap();
 
         let expected = json! {{
-        //   "jsonrpc":"2.0",
+            "jsonrpc":"2.0",
             "method":"slotNotification",
             "params":{
                 "result":{
@@ -2732,7 +2734,7 @@ pub(crate) mod tests {
             let response: Value = serde_json::from_str(&receiver.recv()).unwrap();
 
             let expected = json! {{
-                // "jsonrpc":"2.0",
+                "jsonrpc":"2.0",
                 "method":"rootNotification",
                 "params":{
                     "result": expected_root,
@@ -2859,7 +2861,7 @@ pub(crate) mod tests {
         let response: Value = serde_json::from_str(&receiver0.recv()).unwrap();
 
         let expected = json! {{
-        //  "jsonrpc": "2.0",
+            "jsonrpc": "2.0",
             "method": "accountNotification",
             "params": {
                 "result": {
@@ -2910,7 +2912,7 @@ pub(crate) mod tests {
 
         let response: Value = serde_json::from_str(&receiver1.recv()).unwrap();
         let expected = json!({
-        //  "jsonrpc": "2.0",
+            "jsonrpc": "2.0",
             "method": "accountNotification",
             "params": {
                 "result": {
@@ -2935,7 +2937,7 @@ pub(crate) mod tests {
 
     fn make_logs_result(signature: &str, subscription_id: u64) -> serde_json::Value {
         json!({
-            //"jsonrpc": "2.0",
+            "jsonrpc": "2.0",
             "method": "logsNotification",
             "params": {
                 "result": {
