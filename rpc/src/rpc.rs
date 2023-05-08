@@ -5972,10 +5972,7 @@ pub mod tests {
         let recent_blockhash = bank.confirmed_last_blockhash();
         let confirmed_block_signatures = rpc.create_test_transactions_and_populate_blockstore();
         let RpcHandler {
-            meta,
-            io,
-            mint_keypair,
-            ..
+            io, mint_keypair, ..
         } = rpc;
 
         let req = format!(
@@ -6739,7 +6736,7 @@ pub mod tests {
             ..Default::default()
         };
 
-        let mut rpc = RpcHandler::start_with_config(config);
+        let rpc = RpcHandler::start_with_config(config);
         let request = create_test_request("getBlock", Some(json!([0u64])));
         let response = parse_failure_response(rpc.handle_request(request).await);
         let expected = (

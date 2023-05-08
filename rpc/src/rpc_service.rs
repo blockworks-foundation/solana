@@ -9,7 +9,7 @@ use jsonrpsee::{
 };
 use tower_http::cors::MaxAge;
 
-use crate::request_middleware::{RequestMiddleware, RequestMiddlewareAction};
+use crate::request_middleware::{ProxyMiddleware, RequestMiddleware, RequestMiddlewareAction};
 
 use {
     crate::{
@@ -217,28 +217,24 @@ impl RpcRequestMiddleware {
 
         info!("get {} -> {:?} ({} bytes)", path, filename, file_length);
 
-        RequestMiddlewareAction::Respond {
-            should_validate_hosts: true,
-            response: Box::pin(async {
-                match Self::open_no_follow(filename).await {
-                    Err(err) => Ok(if err.kind() == std::io::ErrorKind::NotFound {
-                        Self::not_found()
-                    } else {
-                        Self::internal_server_error()
-                    }),
-                    Ok(file) => {
-                        let stream =
-                            FramedRead::new(file, BytesCodec::new()).map_ok(|b| b.freeze());
-                        let body = hyper::Body::wrap_stream(stream);
+        RequestMiddlewareAction::Respond(Box::pin(async {
+            match Self::open_no_follow(filename).await {
+                Err(err) => Ok(if err.kind() == std::io::ErrorKind::NotFound {
+                    Self::not_found()
+                } else {
+                    Self::internal_server_error()
+                }),
+                Ok(file) => {
+                    let stream = FramedRead::new(file, BytesCodec::new()).map_ok(|b| b.freeze());
+                    let body = hyper::Body::wrap_stream(stream);
 
-                        Ok(hyper::Response::builder()
-                            .header(hyper::header::CONTENT_LENGTH, file_length)
-                            .body(body)
-                            .unwrap())
-                    }
+                    Ok(hyper::Response::builder()
+                        .header(hyper::header::CONTENT_LENGTH, file_length)
+                        .body(body)
+                        .unwrap())
                 }
-            }),
-        }
+            }
+        }))
     }
 
     fn health_check(&self) -> &'static str {
@@ -253,7 +249,7 @@ impl RpcRequestMiddleware {
 }
 
 impl RequestMiddleware for RpcRequestMiddleware {
-    fn on_request(&self, request: hyper::Request<hyper::Body>) -> RequestMiddlewareAction {
+    fn on_request(&self, request: &hyper::Request<hyper::Body>) -> RequestMiddlewareAction {
         trace!("request uri: {}", request.uri());
 
         if let Some(ref snapshot_config) = self.snapshot_config {
@@ -315,7 +311,7 @@ impl RequestMiddleware for RpcRequestMiddleware {
                 .unwrap()
                 .into()
         } else {
-            request.into()
+            RequestMiddlewareAction::Proceed
         }
     }
 }
@@ -558,12 +554,13 @@ impl JsonRpcService {
                             .unwrap();
                     }
 
-                    let _request_middleware = RpcRequestMiddleware::new(
+                    let request_middleware = RpcRequestMiddleware::new(
                         ledger_path,
                         snapshot_config,
                         bank_forks.clone(),
                         health.clone(),
                     );
+                    let request_middleware = ProxyMiddleware::new(request_middleware);
 
                     let cors = tower_http::cors::CorsLayer::new()
                         .allow_methods([hyper::Method::POST])
@@ -571,7 +568,9 @@ impl JsonRpcService {
                         .max_age(MaxAge::exact(Duration::from_secs(86400)))
                         .allow_headers([hyper::header::CONTENT_TYPE]);
 
-                    let middleware = tower::ServiceBuilder::new().layer(cors);
+                    let middleware = tower::ServiceBuilder::new()
+                        .layer(cors)
+                        .layer(request_middleware);
                     //                .layer(request_middleware);
 
                     let server = ServerBuilder::default()
@@ -892,7 +891,7 @@ mod tests {
 
         // File does not exist => request should fail.
         let action = rrm.process_file_get(DEFAULT_GENESIS_DOWNLOAD_PATH);
-        if let RequestMiddlewareAction::Respond { response, .. } = action {
+        if let RequestMiddlewareAction::Respond(response) = action {
             let response = runtime.block_on(response);
             let response = response.unwrap();
             assert_ne!(response.status(), 200);
@@ -907,7 +906,7 @@ mod tests {
 
         // Normal file exist => request should succeed.
         let action = rrm.process_file_get(DEFAULT_GENESIS_DOWNLOAD_PATH);
-        if let RequestMiddlewareAction::Respond { response, .. } = action {
+        if let RequestMiddlewareAction::Respond(response) = action {
             let response = runtime.block_on(response);
             let response = response.unwrap();
             assert_eq!(response.status(), 200);
@@ -926,7 +925,7 @@ mod tests {
 
             // File is a symbolic link => request should fail.
             let action = rrm.process_file_get(DEFAULT_GENESIS_DOWNLOAD_PATH);
-            if let RequestMiddlewareAction::Respond { response, .. } = action {
+            if let RequestMiddlewareAction::Respond(response) = action {
                 let response = runtime.block_on(response);
                 let response = response.unwrap();
                 assert_ne!(response.status(), 200);
