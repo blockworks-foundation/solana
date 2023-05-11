@@ -252,7 +252,7 @@ pub enum RpcError {
     RpcRequestError(String),
     #[error("RPC response error {code}: {message} {data}")]
     RpcResponseError {
-        code: i64,
+        code: i32,
         message: String,
         data: RpcResponseErrorData,
     },

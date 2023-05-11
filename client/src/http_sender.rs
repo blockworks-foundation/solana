@@ -75,7 +75,7 @@ impl HttpSender {
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct RpcErrorObject {
-    pub code: i64,
+    pub code: i32,
     pub message: String,
 }
 

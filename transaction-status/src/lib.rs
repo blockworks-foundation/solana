@@ -702,7 +702,7 @@ impl From<UiConfirmedBlock> for EncodedConfirmedBlock {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiConfirmedBlock {
     pub previous_blockhash: String,
@@ -940,7 +940,7 @@ impl ConfirmedTransactionWithStatusMeta {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EncodedConfirmedTransactionWithStatusMeta {
     pub slot: Slot,

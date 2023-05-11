@@ -3,7 +3,6 @@ use {
     libloading::{Library, Symbol},
     log::*,
     solana_geyser_plugin_interface::geyser_plugin_interface::GeyserPlugin,
-    std::error::Error,
 };
 
 #[derive(Default, Debug)]
@@ -28,7 +27,7 @@ impl GeyserPluginManager {
         &mut self,
         libpath: &str,
         config_file: &str,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
         let lib = Library::new(libpath)?;
         let constructor: Symbol<PluginConstructor> = lib.get(b"_create_plugin")?;

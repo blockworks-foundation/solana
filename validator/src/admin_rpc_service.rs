@@ -1,9 +1,13 @@
+use jsonrpsee::{
+    core::Error,
+    http_client::{transport::HttpBackend, HttpClient, HttpClientBuilder},
+    proc_macros::rpc,
+    server::ServerBuilder,
+    types::{ErrorObject},
+};
+use solana_rpc::rpc::{invalid_params, Result};
+
 use {
-    jsonrpc_core::{MetaIoHandler, Metadata, Result},
-    jsonrpc_core_client::{transports::ipc, RpcError},
-    jsonrpc_derive::rpc,
-    jsonrpc_ipc_server::{RequestContext, ServerBuilder},
-    jsonrpc_server_utils::tokio,
     log::*,
     serde::{Deserialize, Serialize},
     solana_core::{
@@ -26,6 +30,7 @@ use {
         thread::{self, Builder},
         time::{Duration, SystemTime},
     },
+    tokio::sync::oneshot::channel as oneshot_channel,
 };
 
 #[derive(Clone)]
@@ -45,7 +50,6 @@ pub struct AdminRpcRequestMetadata {
     pub tower_storage: Arc<dyn TowerStorage>,
     pub post_init: Arc<RwLock<Option<AdminRpcRequestMetadataPostInit>>>,
 }
-impl Metadata for AdminRpcRequestMetadata {}
 
 impl AdminRpcRequestMetadata {
     fn with_post_init<F, R>(&self, func: F) -> Result<R>
@@ -55,14 +59,12 @@ impl AdminRpcRequestMetadata {
         if let Some(post_init) = self.post_init.read().unwrap().as_ref() {
             func(post_init)
         } else {
-            Err(jsonrpc_core::error::Error::invalid_params(
-                "Retry once validator start up is complete",
-            ))
+            Err(invalid_params("Retry once validator start up is complete"))
         }
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AdminRpcContactInfo {
     pub id: String,
     pub gossip: SocketAddr,
@@ -132,62 +134,66 @@ impl Display for AdminRpcContactInfo {
     }
 }
 
-#[rpc]
+#[rpc(server, client)]
 pub trait AdminRpc {
-    type Metadata;
+    #[method(name = "exit")]
+    fn exit(&self) -> std::result::Result<(), ErrorObject<'static>>;
 
-    #[rpc(meta, name = "exit")]
-    fn exit(&self, meta: Self::Metadata) -> Result<()>;
+    #[method(name = "rpcAddress")]
+    fn rpc_addr(&self) -> std::result::Result<Option<SocketAddr>, ErrorObject<'static>>;
 
-    #[rpc(meta, name = "rpcAddress")]
-    fn rpc_addr(&self, meta: Self::Metadata) -> Result<Option<SocketAddr>>;
+    #[method(name = "setLogFilter")]
+    fn set_log_filter(&self, filter: String) -> std::result::Result<(), ErrorObject<'static>>;
 
-    #[rpc(name = "setLogFilter")]
-    fn set_log_filter(&self, filter: String) -> Result<()>;
+    #[method(name = "startTime")]
+    fn start_time(&self) -> std::result::Result<SystemTime, ErrorObject<'static>>;
 
-    #[rpc(meta, name = "startTime")]
-    fn start_time(&self, meta: Self::Metadata) -> Result<SystemTime>;
+    #[method(name = "startProgress")]
+    fn start_progress(&self) -> std::result::Result<ValidatorStartProgress, ErrorObject<'static>>;
 
-    #[rpc(meta, name = "startProgress")]
-    fn start_progress(&self, meta: Self::Metadata) -> Result<ValidatorStartProgress>;
+    #[method(name = "addAuthorizedVoter")]
+    fn add_authorized_voter(
+        &self,
+        keypair_file: String,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
-    #[rpc(meta, name = "addAuthorizedVoter")]
-    fn add_authorized_voter(&self, meta: Self::Metadata, keypair_file: String) -> Result<()>;
+    #[method(name = "addAuthorizedVoterFromBytes")]
+    fn add_authorized_voter_from_bytes(
+        &self,
+        keypair: Vec<u8>,
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
-    #[rpc(meta, name = "addAuthorizedVoterFromBytes")]
-    fn add_authorized_voter_from_bytes(&self, meta: Self::Metadata, keypair: Vec<u8>)
-        -> Result<()>;
+    #[method(name = "removeAllAuthorizedVoters")]
+    fn remove_all_authorized_voters(&self) -> std::result::Result<(), ErrorObject<'static>>;
 
-    #[rpc(meta, name = "removeAllAuthorizedVoters")]
-    fn remove_all_authorized_voters(&self, meta: Self::Metadata) -> Result<()>;
-
-    #[rpc(meta, name = "setIdentity")]
+    #[method(name = "setIdentity")]
     fn set_identity(
         &self,
-        meta: Self::Metadata,
         keypair_file: String,
         require_tower: bool,
-    ) -> Result<()>;
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
-    #[rpc(meta, name = "setIdentityFromBytes")]
+    #[method(name = "setIdentityFromBytes")]
     fn set_identity_from_bytes(
         &self,
-        meta: Self::Metadata,
         identity_keypair: Vec<u8>,
         require_tower: bool,
-    ) -> Result<()>;
+    ) -> std::result::Result<(), ErrorObject<'static>>;
 
-    #[rpc(meta, name = "contactInfo")]
-    fn contact_info(&self, meta: Self::Metadata) -> Result<AdminRpcContactInfo>;
+    #[method(name = "contactInfo")]
+    fn contact_info(&self) -> std::result::Result<AdminRpcContactInfo, ErrorObject<'static>>;
 }
 
-pub struct AdminRpcImpl;
-impl AdminRpc for AdminRpcImpl {
-    type Metadata = AdminRpcRequestMetadata;
+pub struct AdminRpcImpl {
+    pub meta: AdminRpcRequestMetadata,
+}
 
-    fn exit(&self, meta: Self::Metadata) -> Result<()> {
+#[jsonrpsee::core::async_trait]
+impl AdminRpcServer for AdminRpcImpl {
+    fn exit(&self) -> Result<()> {
         debug!("exit admin rpc request received");
 
+        let validator_exit = self.meta.validator_exit.clone();
         thread::Builder::new()
             .name("solProcessExit".into())
             .spawn(move || {
@@ -196,7 +202,7 @@ impl AdminRpc for AdminRpcImpl {
                 thread::sleep(Duration::from_millis(100));
 
                 warn!("validator exit requested");
-                meta.validator_exit.write().unwrap().exit();
+                validator_exit.write().unwrap().exit();
 
                 // TODO: Debug why Exit doesn't always cause the validator to fully exit
                 // (rocksdb background processing or some other stuck thread perhaps?).
@@ -210,9 +216,9 @@ impl AdminRpc for AdminRpcImpl {
         Ok(())
     }
 
-    fn rpc_addr(&self, meta: Self::Metadata) -> Result<Option<SocketAddr>> {
+    fn rpc_addr(&self) -> Result<Option<SocketAddr>> {
         debug!("rpc_addr admin rpc request received");
-        Ok(meta.rpc_addr)
+        Ok(self.meta.rpc_addr)
     }
 
     fn set_log_filter(&self, filter: String) -> Result<()> {
@@ -221,92 +227,79 @@ impl AdminRpc for AdminRpcImpl {
         Ok(())
     }
 
-    fn start_time(&self, meta: Self::Metadata) -> Result<SystemTime> {
+    fn start_time(&self) -> Result<SystemTime> {
         debug!("start_time admin rpc request received");
-        Ok(meta.start_time)
+        Ok(self.meta.start_time)
     }
 
-    fn start_progress(&self, meta: Self::Metadata) -> Result<ValidatorStartProgress> {
+    fn start_progress(&self) -> Result<ValidatorStartProgress> {
         debug!("start_progress admin rpc request received");
-        Ok(*meta.start_progress.read().unwrap())
+        Ok(*self.meta.start_progress.read().unwrap())
     }
 
-    fn add_authorized_voter(&self, meta: Self::Metadata, keypair_file: String) -> Result<()> {
+    fn add_authorized_voter(&self, keypair_file: String) -> Result<()> {
         debug!("add_authorized_voter request received");
 
-        let authorized_voter = read_keypair_file(keypair_file)
-            .map_err(|err| jsonrpc_core::error::Error::invalid_params(format!("{}", err)))?;
+        let authorized_voter =
+            read_keypair_file(keypair_file).map_err(|err| invalid_params(format!("{err}")))?;
 
-        AdminRpcImpl::add_authorized_voter_keypair(meta, authorized_voter)
+        AdminRpcImpl::add_authorized_voter_keypair(&self.meta, authorized_voter)
     }
 
-    fn add_authorized_voter_from_bytes(
-        &self,
-        meta: Self::Metadata,
-        keypair: Vec<u8>,
-    ) -> Result<()> {
+    fn add_authorized_voter_from_bytes(&self, keypair: Vec<u8>) -> Result<()> {
         debug!("add_authorized_voter_from_bytes request received");
 
         let authorized_voter = Keypair::from_bytes(&keypair).map_err(|err| {
-            jsonrpc_core::error::Error::invalid_params(format!(
-                "Failed to read authorized voter keypair from provided byte array: {}",
-                err
+            invalid_params(format!(
+                "Failed to read authorized voter keypair from provided byte array: {err}"
             ))
         })?;
 
-        AdminRpcImpl::add_authorized_voter_keypair(meta, authorized_voter)
+        AdminRpcImpl::add_authorized_voter_keypair(&self.meta, authorized_voter)
     }
 
-    fn remove_all_authorized_voters(&self, meta: Self::Metadata) -> Result<()> {
+    fn remove_all_authorized_voters(&self) -> Result<()> {
         debug!("remove_all_authorized_voters received");
-        meta.authorized_voter_keypairs.write().unwrap().clear();
+        self.meta.authorized_voter_keypairs.write().unwrap().clear();
         Ok(())
     }
 
-    fn set_identity(
-        &self,
-        meta: Self::Metadata,
-        keypair_file: String,
-        require_tower: bool,
-    ) -> Result<()> {
+    fn set_identity(&self, keypair_file: String, require_tower: bool) -> Result<()> {
         debug!("set_identity request received");
 
         let identity_keypair = read_keypair_file(&keypair_file).map_err(|err| {
-            jsonrpc_core::error::Error::invalid_params(format!(
-                "Failed to read identity keypair from {}: {}",
-                keypair_file, err
+            invalid_params(format!(
+                "Failed to read identity keypair from {keypair_file}: {err}"
             ))
         })?;
 
-        AdminRpcImpl::set_identity_keypair(meta, identity_keypair, require_tower)
+        AdminRpcImpl::set_identity_keypair(&self.meta, identity_keypair, require_tower)
     }
 
     fn set_identity_from_bytes(
         &self,
-        meta: Self::Metadata,
         identity_keypair: Vec<u8>,
         require_tower: bool,
     ) -> Result<()> {
         debug!("set_identity_from_bytes request received");
 
         let identity_keypair = Keypair::from_bytes(&identity_keypair).map_err(|err| {
-            jsonrpc_core::error::Error::invalid_params(format!(
-                "Failed to read identity keypair from provided byte array: {}",
-                err
+            invalid_params(format!(
+                "Failed to read identity keypair from provided byte array: {err}"
             ))
         })?;
 
-        AdminRpcImpl::set_identity_keypair(meta, identity_keypair, require_tower)
+        AdminRpcImpl::set_identity_keypair(&self.meta, identity_keypair, require_tower)
     }
 
-    fn contact_info(&self, meta: Self::Metadata) -> Result<AdminRpcContactInfo> {
-        meta.with_post_init(|post_init| Ok(post_init.cluster_info.my_contact_info().into()))
+    fn contact_info(&self) -> Result<AdminRpcContactInfo> {
+        self.meta.with_post_init(|post_init| Ok(post_init.cluster_info.my_contact_info().into()))
     }
 }
 
 impl AdminRpcImpl {
     fn add_authorized_voter_keypair(
-        meta: AdminRpcRequestMetadata,
+        meta: &AdminRpcRequestMetadata,
         authorized_voter: Keypair,
     ) -> Result<()> {
         let mut authorized_voter_keypairs = meta.authorized_voter_keypairs.write().unwrap();
@@ -315,9 +308,7 @@ impl AdminRpcImpl {
             .iter()
             .any(|x| x.pubkey() == authorized_voter.pubkey())
         {
-            Err(jsonrpc_core::error::Error::invalid_params(
-                "Authorized voter already present",
-            ))
+            Err(invalid_params("Authorized voter already present"))
         } else {
             authorized_voter_keypairs.push(Arc::new(authorized_voter));
             Ok(())
@@ -325,7 +316,7 @@ impl AdminRpcImpl {
     }
 
     fn set_identity_keypair(
-        meta: AdminRpcRequestMetadata,
+        meta: &AdminRpcRequestMetadata,
         identity_keypair: Keypair,
         require_tower: bool,
     ) -> Result<()> {
@@ -333,7 +324,7 @@ impl AdminRpcImpl {
             if require_tower {
                 let _ = Tower::restore(meta.tower_storage.as_ref(), &identity_keypair.pubkey())
                     .map_err(|err| {
-                        jsonrpc_core::error::Error::invalid_params(format!(
+                        invalid_params(format!(
                             "Unable to load tower file for identity {}: {}",
                             identity_keypair.pubkey(),
                             err
@@ -352,45 +343,49 @@ impl AdminRpcImpl {
 }
 
 // Start the Admin RPC interface
-pub fn run(ledger_path: &Path, metadata: AdminRpcRequestMetadata) {
+pub fn run(ledger_path: &Path, meta: AdminRpcRequestMetadata) {
     let admin_rpc_path = admin_rpc_path(ledger_path);
 
-    let event_loop = tokio::runtime::Builder::new_multi_thread()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .thread_name("solAdminRpcEl")
         .worker_threads(3) // Three still seems like a lot, and better than the default of available core count
         .enable_all()
         .build()
-        .unwrap();
+        .expect("AdminRpc Runtime");
 
     Builder::new()
         .name("solAdminRpc".to_string())
         .spawn(move || {
-            let mut io = MetaIoHandler::default();
-            io.extend_with(AdminRpcImpl.to_delegate());
+            runtime.block_on(async move {
+                let validator_exit = meta.validator_exit.clone();
 
-            let validator_exit = metadata.validator_exit.clone();
-            let server = ServerBuilder::with_meta_extractor(io, move |_req: &RequestContext| {
-                metadata.clone()
-            })
-            .event_loop_executor(event_loop.handle().clone())
-            .start(&format!("{}", admin_rpc_path.display()));
+                let rpc = AdminRpcImpl { meta: meta.clone() }.into_rpc();
+                let server = ServerBuilder::default()
+                    .build(format!("{}", admin_rpc_path.display()))
+                    .await
+                    .expect("Error building admin rpc server")
+                    .start(rpc);
 
-            match server {
-                Err(err) => {
+                if let Err(err) = server {
                     warn!("Unable to start admin rpc service: {:?}", err);
+                    return;
                 }
-                Ok(server) => {
-                    let close_handle = server.close_handle();
+
+                let server_handle = server.unwrap();
+                info!("Started admin rpc service!");
+
+                {
+                    let server_handle = server_handle.clone();
                     validator_exit
                         .write()
                         .unwrap()
                         .register_exit(Box::new(move || {
-                            close_handle.close();
+                            server_handle.stop().unwrap();
                         }));
-
-                    server.wait();
                 }
-            }
+
+                server_handle.stopped().await;
+            });
         })
         .unwrap();
 }
@@ -416,18 +411,18 @@ fn admin_rpc_path(ledger_path: &Path) -> PathBuf {
 }
 
 // Connect to the Admin RPC interface
-pub async fn connect(ledger_path: &Path) -> std::result::Result<gen_client::Client, RpcError> {
+pub async fn connect(ledger_path: &Path) -> std::result::Result<HttpClient<HttpBackend>, Error> {
     let admin_rpc_path = admin_rpc_path(ledger_path);
     if !admin_rpc_path.exists() {
-        Err(RpcError::Client(format!(
+        Err(Error::Custom(format!(
             "{} does not exist",
             admin_rpc_path.display()
         )))
     } else {
-        ipc::connect::<_, gen_client::Client>(&format!("{}", admin_rpc_path.display())).await
+        Ok(HttpClientBuilder::default().build(format!("{}", admin_rpc_path.display()))?)
     }
 }
 
-pub fn runtime() -> jsonrpc_server_utils::tokio::runtime::Runtime {
-    jsonrpc_server_utils::tokio::runtime::Runtime::new().expect("new tokio runtime")
+pub fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Runtime::new().expect("new tokio runtime")
 }

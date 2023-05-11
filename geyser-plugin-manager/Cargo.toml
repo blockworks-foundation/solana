@@ -24,6 +24,7 @@ solana-runtime = { path = "../runtime", version = "=1.14.17" }
 solana-sdk = { path = "../sdk", version = "=1.14.17" }
 solana-transaction-status = { path = "../transaction-status", version = "=1.14.17" }
 thiserror = "1.0.31"
+jsonrpsee = { version = "0.18.1", features = ["macros", "full"] }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
