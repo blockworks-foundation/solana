@@ -12,7 +12,7 @@ edition = { workspace = true }
 [dependencies]
 base64 = { workspace = true }
 bs58 = { workspace = true }
-jsonrpc-core = { workspace = true }
+jsonrpsee = { workspace = true }  
 reqwest = { workspace = true, features = ["blocking", "brotli", "deflate", "gzip", "rustls-tls", "json"] }
 semver = { workspace = true }
 serde = { workspace = true }

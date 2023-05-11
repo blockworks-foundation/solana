@@ -1,6 +1,7 @@
 #![allow(clippy::integer_arithmetic)]
 #[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
+use solana_validator::admin_rpc_service::AdminRpcClient;
 use {
     clap::{crate_name, value_t, value_t_or_exit, values_t, values_t_or_exit, ArgMatches},
     console::style,
@@ -1267,7 +1268,7 @@ pub fn main() {
             max_request_body_size: Some(value_t_or_exit!(
                 matches,
                 "rpc_max_request_body_size",
-                usize
+                u32
             )),
         },
         on_start_geyser_plugin_config_files,

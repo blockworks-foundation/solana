@@ -1,5 +1,5 @@
 #[derive(Deserialize, Debug)]
 pub struct RpcErrorObject {
-    pub code: i64,
+    pub code: i32,
     pub message: String,
 }
