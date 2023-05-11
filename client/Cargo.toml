@@ -24,7 +24,7 @@ futures-util = "0.3.21"
 indexmap = "1.9.1"
 indicatif = "0.16.2"
 itertools = "0.10.2"
-jsonrpc-core = "18.0.0"
+jsonrpsee = { version = "0.18.1", features = ["macros", "full"] }
 lazy_static = "1.4.0"
 log = "0.4.17"
 quinn = "0.8.3"
@@ -56,6 +56,8 @@ tokio-stream = "0.1.9"
 tokio-tungstenite = { version = "0.17.1", features = ["rustls-tls-webpki-roots"] }
 tungstenite = { version = "0.17.2", features = ["rustls-tls-webpki-roots"] }
 url = "2.2.2"
+tower = "0.4.13"
+tower-http = { version = "0.4.0", features= ["cors"] }
 
 [dev-dependencies]
 anyhow = "1.0.58"

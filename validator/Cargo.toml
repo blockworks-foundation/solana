@@ -18,11 +18,7 @@ core_affinity = "0.5.10"
 crossbeam-channel = "0.5"
 fd-lock = "3.0.5"
 indicatif = "0.16.2"
-jsonrpc-core = "18.0.0"
-jsonrpc-core-client = { version = "18.0.0", features = ["ipc"] }
-jsonrpc-derive = "18.0.0"
-jsonrpc-ipc-server = "18.0.0"
-jsonrpc-server-utils = "18.0.0"
+jsonrpsee = { version = "0.18.1", features = ["macros", "full"] }
 log = "0.4.17"
 num_cpus = "1.13.1"
 rand = "0.7.0"
@@ -53,6 +49,7 @@ solana-test-validator = { path = "../test-validator", version = "=1.14.1" }
 solana-version = { path = "../version", version = "=1.14.1" }
 solana-vote-program = { path = "../programs/vote", version = "=1.14.1" }
 symlink = "0.1.0"
+tokio = { version = "1.28.1", features = ["full"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = { package = "tikv-jemallocator", version = "0.4.1", features = ["unprefixed_malloc_on_supported_platforms"] }

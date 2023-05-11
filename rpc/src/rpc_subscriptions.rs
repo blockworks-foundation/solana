@@ -1,5 +1,7 @@
 //! The `pubsub` module implements a threaded subscription service on client RPC request
 
+use jsonrpsee::types::TwoPointZero;
+
 use {
     crate::{
         optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank,
@@ -276,7 +278,7 @@ struct NotificationParams<T> {
 
 #[derive(Debug, Serialize)]
 struct Notification<T> {
-    jsonrpc: Option<jsonrpc_core::Version>,
+    jsonrpc: Option<TwoPointZero>,
     method: &'static str,
     params: NotificationParams<T>,
 }
@@ -290,7 +292,7 @@ impl RpcNotifier {
             let mut buf = buf.borrow_mut();
             buf.clear();
             let notification = Notification {
-                jsonrpc: Some(jsonrpc_core::Version::V2),
+                jsonrpc: Some(TwoPointZero),
                 method: subscription.method(),
                 params: NotificationParams {
                     result: value,
@@ -1251,6 +1253,10 @@ impl RpcSubscriptions {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use serde_json::Value;
+
+    use crate::rpc_pubsub::RpcSolPubSubInternalServer;
+
     use {
         super::*,
         crate::{
@@ -1258,7 +1264,6 @@ pub(crate) mod tests {
                 BankNotification, OptimisticallyConfirmedBank, OptimisticallyConfirmedBankTracker,
             },
             rpc::{create_test_transaction_entries, populate_blockstore_for_tests},
-            rpc_pubsub::RpcSolPubSubInternal,
             rpc_pubsub_service,
         },
         serial_test::serial,
@@ -2609,19 +2614,21 @@ pub(crate) mod tests {
             .assert_subscribed(&SubscriptionParams::Slot);
 
         subscriptions.notify_slot(0, 0, 0);
-        let response = receiver.recv();
+        let response: Value = serde_json::from_str(&receiver.recv()).unwrap();
 
-        let expected_res = SlotInfo {
-            parent: 0,
-            slot: 0,
-            root: 0,
-        };
-        let expected_res_str = serde_json::to_string(&expected_res).unwrap();
+        let expected = json! {{
+            "jsonrpc":"2.0",
+            "method":"slotNotification",
+            "params":{
+                "result":{
+                    "parent": 0,
+                    "slot": 0,
+                    "root": 0,
+                },
+                "subscription": 0
+            }
+        }};
 
-        let expected = format!(
-            r#"{{"jsonrpc":"2.0","method":"slotNotification","params":{{"result":{},"subscription":0}}}}"#,
-            expected_res_str
-        );
         assert_eq!(expected, response);
 
         rpc.slot_unsubscribe(sub_id).unwrap();
@@ -2657,14 +2664,17 @@ pub(crate) mod tests {
         subscriptions.notify_roots(vec![2, 1, 3]);
 
         for expected_root in 1..=3 {
-            let response = receiver.recv();
+            let response: Value = serde_json::from_str(&receiver.recv()).unwrap();
 
-            let expected_res_str =
-                serde_json::to_string(&serde_json::to_value(expected_root).unwrap()).unwrap();
-            let expected = format!(
-                r#"{{"jsonrpc":"2.0","method":"rootNotification","params":{{"result":{},"subscription":0}}}}"#,
-                expected_res_str
-            );
+            let expected = json! {{
+                "jsonrpc":"2.0",
+                "method":"rootNotification",
+                "params":{
+                    "result": expected_root,
+                    "subscription": 0
+                },
+            }};
+
             assert_eq!(expected, response);
         }
 
@@ -2773,7 +2783,8 @@ pub(crate) mod tests {
             &None,
         );
 
-        let response = receiver0.recv();
+        let response: Value = serde_json::from_str(&receiver0.recv()).unwrap();
+
         let expected = json!({
            "jsonrpc": "2.0",
            "method": "accountNotification",
@@ -2791,10 +2802,7 @@ pub(crate) mod tests {
                "subscription": 0,
            }
         });
-        assert_eq!(
-            expected,
-            serde_json::from_str::<serde_json::Value>(&response).unwrap(),
-        );
+        assert_eq!(expected, response);
         rpc0.account_unsubscribe(sub_id0).unwrap();
 
         let sub_id1 = rpc1
@@ -2822,7 +2830,8 @@ pub(crate) mod tests {
             &mut highest_confirmed_slot,
             &None,
         );
-        let response = receiver1.recv();
+
+        let response: Value = serde_json::from_str(&receiver1.recv()).unwrap();
         let expected = json!({
            "jsonrpc": "2.0",
            "method": "accountNotification",
@@ -2840,10 +2849,7 @@ pub(crate) mod tests {
                "subscription": 1,
            }
         });
-        assert_eq!(
-            expected,
-            serde_json::from_str::<serde_json::Value>(&response).unwrap(),
-        );
+        assert_eq!(expected, response);
         rpc1.account_unsubscribe(sub_id1).unwrap();
 
         assert!(!subscriptions.control.account_subscribed(&alice.pubkey()));

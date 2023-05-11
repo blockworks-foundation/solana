@@ -1,15 +1,16 @@
 //! The `pubsub` module implements a threaded subscription service on client RPC request
 
+use crate::rpc_pubsub::RpcSolPubSubInternalServer;
+
 use {
     crate::{
-        rpc_pubsub::{RpcSolPubSubImpl, RpcSolPubSubInternal},
+        rpc_pubsub::RpcSolPubSubImpl,
         rpc_subscription_tracker::{
             SubscriptionControl, SubscriptionId, SubscriptionParams, SubscriptionToken,
         },
         rpc_subscriptions::{RpcNotification, RpcSubscriptions},
     },
     dashmap::{mapref::entry::Entry, DashMap},
-    jsonrpc_core::IoHandler,
     soketto::handshake::{server, Server},
     solana_metrics::TokenCounter,
     std::{
@@ -284,13 +285,13 @@ async fn handle_connection(
     let mut data = Vec::new();
     let current_subscriptions = Arc::new(DashMap::new());
 
-    let mut json_rpc_handler = IoHandler::new();
     let rpc_impl = RpcSolPubSubImpl::new(
         config,
         subscription_control,
         Arc::clone(&current_subscriptions),
-    );
-    json_rpc_handler.extend_with(rpc_impl.to_delegate());
+    )
+    .into_rpc();
+
     let broadcast_handler = BroadcastHandler {
         current_subscriptions,
     };
@@ -331,9 +332,10 @@ async fn handle_connection(
                 break;
             }
         };
-
-        if let Some(response) = json_rpc_handler.handle_request(data_str).await {
-            sender.send_text(&response).await?;
+        if let Ok((_, mut recv)) = rpc_impl.raw_json_request(data_str, 1).await {
+            if let Some(recv) = recv.recv().await {
+                sender.send_text(recv).await?;
+            }
         }
         data.clear();
     }
