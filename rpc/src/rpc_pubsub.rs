@@ -20,10 +20,7 @@ use {
             RpcProgramAccountsConfig, RpcSignatureSubscribeConfig, RpcTransactionLogsConfig,
             RpcTransactionLogsFilter,
         },
-        rpc_response::{
-            Response as RpcResponse, RpcBlockUpdate, RpcKeyedAccount, RpcLogsResponse,
-            RpcSignatureResult, RpcVersionInfo, RpcVote, SlotInfo, SlotUpdate,
-        },
+        rpc_response::RpcVersionInfo,
     },
     solana_sdk::{pubkey::Pubkey, signature::Signature},
     solana_transaction_status::UiTransactionEncoding,
