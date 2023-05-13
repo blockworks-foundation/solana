@@ -84,8 +84,8 @@ impl BanksServer {
                 .into_iter()
                 .map(|info| deserialize(&info.wire_transaction).unwrap())
                 .collect();
-            let bank = bank_forks.read().unwrap().working_bank();
-            let _ = bank.try_process_transactions(transactions.iter());
+            let bank_lock = bank_forks.read().unwrap();
+            let _ = bank_lock.working_bank().try_process_transactions(transactions.iter());
         }
     }
 
