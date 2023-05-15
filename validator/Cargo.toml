@@ -18,7 +18,8 @@ core_affinity = "0.5.10"
 crossbeam-channel = "0.5"
 fd-lock = "3.0.5"
 indicatif = "0.16.2"
-jsonrpsee = { version = "0.18.1", features = ["macros", "full"] }
+jsonrpsee = { version = "0.18.1", features = ["macros", "full"], git = "https://github.com/mschneider/jsonrpsee.git", branch = "rust-1.64.0-stable" }
+
 log = "0.4.17"
 num_cpus = "1.13.1"
 rand = "0.7.0"

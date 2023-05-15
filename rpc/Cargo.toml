@@ -16,7 +16,8 @@ bs58 = "0.4.0"
 crossbeam-channel = "0.5"
 dashmap = "4.0.2"
 itertools = "0.10.3"
-jsonrpsee = { version = "0.18.1", features = ["macros", "full"] }
+jsonrpsee = { version = "0.18.1", features = ["macros", "full"], git = "https://github.com/mschneider/jsonrpsee.git", branch = "rust-1.64.0-stable" }
+
 tower = "0.4.13"
 tower-http = { version = "0.4.0", features= ["cors"] }
 hyper = "0.14.26"
