@@ -24,7 +24,7 @@ futures-util = "0.3.21"
 indexmap = "1.9.1"
 indicatif = "0.16.2"
 itertools = "0.10.2"
-jsonrpsee = { version = "0.18.1", features = ["macros", "full"] }
+jsonrpsee = { git = "https://github.com/aniketfuryrocks/jsonrpsee", branch = "rust_1.64", features = ["macros", "full"] }
 lazy_static = "1.4.0"
 log = "0.4.17"
 quinn = "0.8.3"

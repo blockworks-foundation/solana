@@ -16,7 +16,7 @@ bs58 = "0.4.0"
 crossbeam-channel = "0.5"
 dashmap = "4.0.2"
 itertools = "0.10.3"
-jsonrpsee = { version = "0.18.1", features = ["macros", "full"] }
+jsonrpsee = { git = "https://github.com/aniketfuryrocks/jsonrpsee", branch = "rust_1.64", features = ["macros", "full"] }
 tower = "0.4.13"
 tower-http = { version = "0.4.0", features= ["cors"] }
 hyper = "0.14.26"

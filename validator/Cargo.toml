@@ -18,7 +18,7 @@ core_affinity = "0.5.10"
 crossbeam-channel = "0.5"
 fd-lock = "3.0.5"
 indicatif = "0.16.2"
-jsonrpsee = { version = "0.18.1", features = ["macros", "full"] }
+jsonrpsee = { git = "https://github.com/aniketfuryrocks/jsonrpsee", branch = "rust_1.64", features = ["macros", "full"] }
 log = "0.4.17"
 num_cpus = "1.13.1"
 rand = "0.7.0"
