@@ -1,6 +1,6 @@
 #![allow(clippy::integer_arithmetic)]
 #[cfg(not(target_env = "msvc"))]
-use jemallocator::Jemalloc;
+use mimalloc::MiMalloc;
 use {
     clap::{
         crate_description, crate_name, value_t, value_t_or_exit, values_t, values_t_or_exit, App,
@@ -93,7 +93,7 @@ use {
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Operation {

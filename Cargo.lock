@@ -2404,6 +2404,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
 
 [[package]]
+name = "libmimalloc-sys"
+version = "0.1.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4ac0e912c8ef1b735e92369695618dc5b1819f5a7bf3f167301a3ba1cea515e"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "librocksdb-sys"
 version = "0.8.0+7.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2587,6 +2597,15 @@ dependencies = [
  "keccak",
  "rand_core 0.6.3",
  "zeroize",
+]
+
+[[package]]
+name = "mimalloc"
+version = "0.1.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e2894987a3459f3ffb755608bd82188f8ed00d0ae077f1edea29c068d639d98"
+dependencies = [
+ "libmimalloc-sys",
 ]
 
 [[package]]
@@ -3796,8 +3815,6 @@ version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7263373d500d4d4f505d43a2a662d475a894aa94503a1ee28e9188b5f3960d4f"
 dependencies = [
- "cc",
- "libc",
  "libm",
  "lru",
  "parking_lot 0.11.2",
@@ -6437,6 +6454,7 @@ dependencies = [
  "jsonrpc-server-utils",
  "libc",
  "log",
+ "mimalloc",
  "num_cpus",
  "rand 0.7.3",
  "serde",
@@ -6467,7 +6485,6 @@ dependencies = [
  "solana-version",
  "solana-vote-program",
  "symlink",
- "tikv-jemallocator",
 ]
 
 [[package]]
