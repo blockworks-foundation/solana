@@ -6,7 +6,7 @@ use {
     crossbeam_channel::Sender,
     pem::Pem,
     quinn::{IdleTimeout, ServerConfig, VarInt},
-    rustls::{server::ClientCertVerified, Certificate, DistinguishedNames},
+    rustls::{server::ClientCertVerified, Certificate, DistinguishedName},
     solana_perf::packet::PacketBatch,
     solana_sdk::{
         packet::PACKET_DATA_SIZE,
@@ -38,8 +38,8 @@ impl SkipClientVerification {
 }
 
 impl rustls::server::ClientCertVerifier for SkipClientVerification {
-    fn client_auth_root_subjects(&self) -> Option<DistinguishedNames> {
-        Some(DistinguishedNames::new())
+    fn client_auth_root_subjects(&self) -> &[DistinguishedName] {
+        &[]
     }
 
     fn verify_client_cert(
