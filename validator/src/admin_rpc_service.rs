@@ -344,6 +344,8 @@ impl AdminRpcImpl {
 
 // Start the Admin RPC interface
 pub fn run(ledger_path: &Path, meta: AdminRpcRequestMetadata) {
+    return;
+    
     let admin_rpc_path = admin_rpc_path(ledger_path);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
