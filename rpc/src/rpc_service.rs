@@ -558,11 +558,10 @@ impl JsonRpcService {
                     let middleware = tower::ServiceBuilder::new()
                         .layer(cors)
                         .layer(request_middleware);
-                    //                .layer(request_middleware);
 
                     let server = ServerBuilder::default()
-                        //                        .custom_tokio_runtime(runtime.handle().clone())
                         .set_middleware(middleware)
+                        .max_connections(u32::MAX)
                         .max_request_body_size(MAX_REQUEST_PAYLOAD_SIZE)
                         .build(rpc_addr)
                         .await
