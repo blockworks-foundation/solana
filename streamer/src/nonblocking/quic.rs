@@ -810,16 +810,21 @@ pub mod test {
     pub async fn make_client_endpoint(
         addr: &SocketAddr,
         client_keypair: Option<&Keypair>,
-    ) -> NewConnection {
+    ) -> Connection {
         let client_socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let mut endpoint =
-            quinn::Endpoint::new(EndpointConfig::default(), None, client_socket, TokioRuntime)
-                .unwrap();
+        let mut endpoint = quinn::Endpoint::new(
+            EndpointConfig::default(),
+            None,
+            client_socket,
+            Arc::new(TokioRuntime),
+        )
+        .unwrap();
 
         let default_keypair = Keypair::new();
         endpoint.set_default_client_config(get_client_config(
             client_keypair.unwrap_or(&default_keypair),
         ));
+
         endpoint
             .connect(*addr, "localhost")
             .expect("Failed in connecting")

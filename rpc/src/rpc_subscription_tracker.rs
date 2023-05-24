@@ -1,3 +1,5 @@
+use jsonrpsee::SubscriptionSink;
+
 use {
     crate::rpc_subscriptions::{NotificationEntry, RpcNotification, TimestampedNotificationEntry},
     dashmap::{mapref::entry::Entry as DashEntry, DashMap},
@@ -181,7 +183,7 @@ pub struct SubscriptionControl(Arc<SubscriptionControlInner>);
 pub struct WeakSubscriptionTokenRef(Weak<SubscriptionTokenInner>, SubscriptionId);
 
 struct SubscriptionControlInner {
-    subscriptions: DashMap<SubscriptionParams, WeakSubscriptionTokenRef>,
+    subscriptions: DashMap<SubscriptionParams, SubscriptionSink>,
     next_id: AtomicU64,
     max_active_subscriptions: usize,
     sender: crossbeam_channel::Sender<TimestampedNotificationEntry>,
@@ -209,7 +211,7 @@ impl SubscriptionControl {
         self.0.broadcast_sender.subscribe()
     }
 
-    pub fn subscribe(&self, params: SubscriptionParams) -> Result<SubscriptionToken, Error> {
+    pub fn subscribe(&self, params: SubscriptionParams, sink: SubscriptionSink) -> Result<SubscriptionToken, Error> {
         debug!(
             "Total existing subscriptions: {}",
             self.0.subscriptions.len()
