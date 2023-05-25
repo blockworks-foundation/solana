@@ -83,8 +83,6 @@ impl PubSubService {
             .name("solRpcPubSub".to_string())
             .spawn(move || {
                 runtime.block_on(async move {
-                    let _broadcast_receiver = subscription_control.broadcast_receiver();
-
                     let server = ServerBuilder::default()
                         .max_connections(config.max_active_subscriptions)
                         .ws_only()
@@ -109,12 +107,8 @@ impl PubSubService {
                     }
 
                     tokio::select! {
-                        res = server.unwrap().stopped() => {
-
-                        },
-                        res = subscription_control.listen_to_broadcast() => {
-
-                        }
+                        _ = server.unwrap().stopped() => {},
+                        _ = subscription_control.listen_to_broadcast() => {}
                     }
                 });
             })
@@ -130,144 +124,6 @@ impl PubSubService {
     pub fn join(self) -> thread::Result<()> {
         self.thread_hdl.join()
     }
-}
-
-//struct BroadcastHandler {
-//    current_subscriptions: Arc<DashMap<SubscriptionId, SubscriptionToken>>,
-//}
-//
-//fn count_final(params: &SubscriptionParams) {
-//    match params {
-//        SubscriptionParams::Account(_) => {
-//            inc_new_counter_info!("rpc-pubsub-final-accounts", 1);
-//        }
-//        SubscriptionParams::Logs(_) => {
-//            inc_new_counter_info!("rpc-pubsub-final-logs", 1);
-//        }
-//        SubscriptionParams::Program(_) => {
-//            inc_new_counter_info!("rpc-pubsub-final-programs", 1);
-//        }
-//        SubscriptionParams::Signature(_) => {
-//            inc_new_counter_info!("rpc-pubsub-final-signatures", 1);
-//        }
-//        SubscriptionParams::Slot => {
-//            inc_new_counter_info!("rpc-pubsub-final-slots", 1);
-//        }
-//        SubscriptionParams::SlotsUpdates => {
-//            inc_new_counter_info!("rpc-pubsub-final-slots-updates", 1);
-//        }
-//        SubscriptionParams::Root => {
-//            inc_new_counter_info!("rpc-pubsub-final-roots", 1);
-//        }
-//        SubscriptionParams::Vote => {
-//            inc_new_counter_info!("rpc-pubsub-final-votes", 1);
-//        }
-//        SubscriptionParams::Block(_) => {
-//            inc_new_counter_info!("rpc-pubsub-final-slot-txs", 1);
-//        }
-//    }
-//}
-//
-//impl BroadcastHandler {
-//    fn handle(&self, notification: RpcNotification) -> Result<Option<Arc<String>>, Error> {
-//        if let Entry::Occupied(entry) = self
-//            .current_subscriptions
-//            .entry(notification.subscription_id)
-//        {
-//            count_final(entry.get().params());
-//
-//            let time_since_created = notification.created_at.elapsed();
-//
-//            datapoint_info!(
-//                "pubsub_notifications",
-//                (
-//                    "created_to_queue_time_us",
-//                    time_since_created.as_micros() as i64,
-//                    i64
-//                ),
-//            );
-//
-//            if notification.is_final {
-//                entry.remove();
-//            }
-//            notification
-//                .json
-//                .upgrade()
-//                .ok_or(Error::NotificationIsGone)
-//                .map(Some)
-//        } else {
-//            Ok(None)
-//        }
-//    }
-//}
-
-#[cfg(test)]
-pub struct TestBroadcastReceiver {
-    handler: BroadcastHandler,
-    inner: tokio::sync::broadcast::Receiver<RpcNotification>,
-}
-
-#[cfg(test)]
-impl TestBroadcastReceiver {
-    pub fn recv(&mut self) -> String {
-        match self.recv_timeout(std::time::Duration::from_secs(10)) {
-            Err(err) => panic!("broadcast receiver error: {}", err),
-            Ok(str) => str,
-        }
-    }
-
-    pub fn recv_timeout(&mut self, timeout: std::time::Duration) -> Result<String, String> {
-        use {std::thread::sleep, tokio::sync::broadcast::error::TryRecvError};
-
-        let started = std::time::Instant::now();
-
-        loop {
-            match self.inner.try_recv() {
-                Ok(notification) => {
-                    debug!(
-                        "TestBroadcastReceiver: {:?}ms elapsed",
-                        started.elapsed().as_millis()
-                    );
-                    if let Some(json) = self.handler.handle(notification).expect("handler failed") {
-                        return Ok(json.to_string());
-                    }
-                }
-                Err(TryRecvError::Empty) => {
-                    if started.elapsed() > timeout {
-                        return Err("TestBroadcastReceiver: no data, timeout reached".into());
-                    }
-                    sleep(std::time::Duration::from_millis(50));
-                }
-                Err(e) => return Err(e.to_string()),
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-pub fn test_connection(
-    subscriptions: &Arc<RpcSubscriptions>,
-) -> (RpcSolPubSubImpl, TestBroadcastReceiver) {
-    let current_subscriptions = Arc::new(DashMap::new());
-
-    let rpc_impl = RpcSolPubSubImpl::new(
-        PubSubConfig {
-            enable_block_subscription: true,
-            enable_vote_subscription: true,
-            queue_capacity_items: 100,
-            ..PubSubConfig::default()
-        },
-        subscriptions.control().clone(),
-        Arc::clone(&current_subscriptions),
-    );
-    let broadcast_handler = BroadcastHandler {
-        current_subscriptions,
-    };
-    let receiver = TestBroadcastReceiver {
-        inner: subscriptions.control().broadcast_receiver(),
-        handler: broadcast_handler,
-    };
-    (rpc_impl, receiver)
 }
 
 #[derive(Debug, Error)]

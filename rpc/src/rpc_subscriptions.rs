@@ -731,6 +731,7 @@ impl RpcSubscriptions {
     }
 
     pub fn notify_signatures_received(&self, slot_signatures: (Slot, Vec<Signature>)) {
+        panic!("received signatures");
         self.enqueue_notification(NotificationEntry::SignaturesReceived(slot_signatures));
     }
 
