@@ -563,6 +563,7 @@ impl JsonRpcService {
                         .set_middleware(middleware)
                         .max_connections(u32::MAX)
                         .max_request_body_size(MAX_REQUEST_PAYLOAD_SIZE)
+                        .http_only()
                         .build(rpc_addr)
                         .await
                         .expect("Error building server")

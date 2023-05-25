@@ -855,16 +855,16 @@ impl Validator {
                 if !config.rpc_config.full_api {
                     None
                 } else {
-                    let (trigger, pubsub_service) = PubSubService::new(
+                    let pubsub_service = PubSubService::new(
                         config.pubsub_config.clone(),
                         &rpc_subscriptions,
                         rpc_pubsub_addr,
                     );
-                    config
-                        .validator_exit
-                        .write()
-                        .unwrap()
-                        .register_exit(Box::new(move || trigger.cancel()));
+                    //config
+                    //    .validator_exit
+                    //    .write()
+                    //    .unwrap()
+                    //    .register_exit(Box::new(move || trigger.cancel()));
 
                     Some(pubsub_service)
                 },

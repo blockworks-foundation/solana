@@ -1,6 +1,6 @@
 //! The `pubsub` module implements a threaded subscription service on client RPC request
 
-use jsonrpsee::types::TwoPointZero;
+use jsonrpsee::types::{SubscriptionId};
 
 use {
     crate::{
@@ -10,8 +10,8 @@ use {
         rpc_subscription_tracker::{
             AccountSubscriptionParams, BlockSubscriptionKind, BlockSubscriptionParams,
             LogsSubscriptionKind, LogsSubscriptionParams, ProgramSubscriptionParams,
-            SignatureSubscriptionParams, SubscriptionControl, SubscriptionId, SubscriptionInfo,
-            SubscriptionParams, SubscriptionsTracker,
+            SignatureSubscriptionParams, SubscriptionControl, SubscriptionInfo, SubscriptionParams,
+            SubscriptionsTracker,
         },
     },
     crossbeam_channel::{Receiver, RecvTimeoutError, SendError, Sender},
@@ -46,11 +46,10 @@ use {
     std::{
         cell::RefCell,
         collections::{HashMap, VecDeque},
-        io::Cursor,
         iter, str,
         sync::{
             atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-            Arc, Mutex, RwLock, Weak,
+            Arc, Mutex, RwLock,
         },
         thread::{Builder, JoinHandle},
         time::{Duration, Instant},
@@ -100,8 +99,8 @@ pub enum NotificationEntry {
     Bank(CommitmentSlots),
     Gossip(Slot),
     SignaturesReceived((Slot, Vec<Signature>)),
-    Subscribed(SubscriptionParams, SubscriptionId),
-    Unsubscribed(SubscriptionParams, SubscriptionId),
+    Subscribed(SubscriptionParams, SubscriptionId<'static>),
+    Unsubscribed(SubscriptionParams, SubscriptionId<'static>),
 }
 
 impl std::fmt::Debug for NotificationEntry {
@@ -173,9 +172,9 @@ where
 
 #[derive(Debug, Clone)]
 pub struct RpcNotification {
-    pub subscription_id: SubscriptionId,
+    pub subscription_id: SubscriptionId<'static>,
     pub is_final: bool,
-    pub json: Weak<String>,
+    pub json: serde_json::Value,
     pub created_at: Instant,
 }
 
@@ -273,14 +272,7 @@ thread_local! {
 #[derive(Debug, Serialize)]
 struct NotificationParams<T> {
     result: T,
-    subscription: SubscriptionId,
-}
-
-#[derive(Debug, Serialize)]
-struct Notification<T> {
-    jsonrpc: Option<TwoPointZero>,
-    method: &'static str,
-    params: NotificationParams<T>,
+    subscription: SubscriptionId<'static>,
 }
 
 impl RpcNotifier {
@@ -288,26 +280,9 @@ impl RpcNotifier {
     where
         T: serde::Serialize,
     {
-        let buf_arc = RPC_NOTIFIER_BUF.with(|buf| {
-            let mut buf = buf.borrow_mut();
-            buf.clear();
-            let notification = Notification {
-                jsonrpc: Some(TwoPointZero),
-                method: subscription.method(),
-                params: NotificationParams {
-                    result: value,
-                    subscription: subscription.id(),
-                },
-            };
-            serde_json::to_writer(Cursor::new(&mut *buf), &notification)
-                .expect("serialization never fails");
-            let buf_str = str::from_utf8(&buf).expect("json is always utf-8");
-            Arc::new(String::from(buf_str))
-        });
-
         let notification = RpcNotification {
             subscription_id: subscription.id(),
-            json: Arc::downgrade(&buf_arc),
+            json: serde_json::json!(value),
             is_final,
             created_at: Instant::now(),
         };
@@ -316,9 +291,9 @@ impl RpcNotifier {
         let _ = self.sender.send(notification);
 
         inc_new_counter_info!("rpc-pubsub-messages", 1);
-        inc_new_counter_info!("rpc-pubsub-bytes", buf_arc.len());
+        //inc_new_counter_info!("rpc-pubsub-bytes", buf_arc.len());
 
-        self.recent_items.lock().unwrap().push(buf_arc);
+        //self.recent_items.lock().unwrap().push(buf_arc);
     }
 }
 
@@ -951,7 +926,7 @@ impl RpcSubscriptions {
     fn notify_watchers(
         max_complete_transaction_status_slot: Arc<AtomicU64>,
         max_complete_rewards_slot: Arc<AtomicU64>,
-        subscriptions: &HashMap<SubscriptionId, Arc<SubscriptionInfo>>,
+        subscriptions: &HashMap<SubscriptionId<'static>, Arc<SubscriptionInfo>>,
         bank_forks: &Arc<RwLock<BankForks>>,
         blockstore: &Blockstore,
         commitment_slots: &CommitmentSlots,
@@ -1037,10 +1012,7 @@ impl RpcSubscriptions {
                             let mut slots_to_notify: Vec<_> =
                                 (*w_last_unnotified_slot..slot).collect();
                             let ancestors = bank.proper_ancestors_set();
-                            slots_to_notify = slots_to_notify
-                                .into_iter()
-                                .filter(|slot| ancestors.contains(slot))
-                                .collect();
+                            slots_to_notify.retain(|slot| ancestors.contains(slot));
                             slots_to_notify.push(slot);
                             for s in slots_to_notify {
                                 // To avoid skipping a slot that fails this condition,

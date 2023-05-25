@@ -2646,7 +2646,7 @@ pub fn main() {
             max_active_subscriptions: value_t_or_exit!(
                 matches,
                 "rpc_pubsub_max_active_subscriptions",
-                usize
+                u32 
             ),
             queue_capacity_items: value_t_or_exit!(
                 matches,

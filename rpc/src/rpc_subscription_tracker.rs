@@ -1,11 +1,15 @@
-use jsonrpsee::SubscriptionSink;
+use jsonrpsee::{
+    core::SubscriptionResult,
+    types::{error::ErrorCode, ErrorObject, SubscriptionId},
+    PendingSubscriptionSink, SubscriptionMessage, SubscriptionSink,
+};
 
 use {
-    crate::rpc_subscriptions::{NotificationEntry, RpcNotification, TimestampedNotificationEntry},
-    dashmap::{mapref::entry::Entry as DashEntry, DashMap},
+    crate::rpc_subscriptions::{RpcNotification, TimestampedNotificationEntry},
+    dashmap::DashMap,
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
     solana_client::rpc_filter::RpcFilterType,
-    solana_metrics::{CounterToken, TokenCounter},
+    solana_metrics::{CounterToken},
     solana_runtime::{
         bank::{TransactionLogCollectorConfig, TransactionLogCollectorFilter},
         bank_forks::BankForks,
@@ -17,29 +21,10 @@ use {
     std::{
         collections::hash_map::{Entry, HashMap},
         fmt,
-        sync::{
-            atomic::{AtomicU64, Ordering},
-            Arc, RwLock, Weak,
-        },
+        sync::{Arc, RwLock},
     },
-    thiserror::Error,
     tokio::sync::broadcast,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SubscriptionId(u64);
-
-impl From<u64> for SubscriptionId {
-    fn from(value: u64) -> Self {
-        SubscriptionId(value)
-    }
-}
-
-impl From<SubscriptionId> for u64 {
-    fn from(value: SubscriptionId) -> Self {
-        value.0
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SubscriptionParams {
@@ -180,30 +165,28 @@ pub struct SignatureSubscriptionParams {
 
 #[derive(Clone)]
 pub struct SubscriptionControl(Arc<SubscriptionControlInner>);
-pub struct WeakSubscriptionTokenRef(Weak<SubscriptionTokenInner>, SubscriptionId);
 
+/// Main hub to keep track of incoming subscriptions
 struct SubscriptionControlInner {
-    subscriptions: DashMap<SubscriptionParams, SubscriptionSink>,
-    next_id: AtomicU64,
-    max_active_subscriptions: usize,
+    subscriptions: DashMap<SubscriptionParams, Vec<SubscriptionId<'static>>>,
+    subscribers: DashMap<SubscriptionId<'static>, SubscriptionSink>,
+    max_active_subscriptions: u32,
     sender: crossbeam_channel::Sender<TimestampedNotificationEntry>,
     broadcast_sender: broadcast::Sender<RpcNotification>,
-    counter: TokenCounter,
 }
 
 impl SubscriptionControl {
     pub fn new(
-        max_active_subscriptions: usize,
+        max_active_subscriptions: u32,
         sender: crossbeam_channel::Sender<TimestampedNotificationEntry>,
         broadcast_sender: broadcast::Sender<RpcNotification>,
     ) -> Self {
         Self(Arc::new(SubscriptionControlInner {
             subscriptions: DashMap::new(),
-            next_id: AtomicU64::new(0),
+            subscribers: DashMap::new(),
             max_active_subscriptions,
             sender,
             broadcast_sender,
-            counter: TokenCounter::new("rpc_pubsub_total_subscriptions"),
         }))
     }
 
@@ -211,57 +194,45 @@ impl SubscriptionControl {
         self.0.broadcast_sender.subscribe()
     }
 
-    pub fn subscribe(&self, params: SubscriptionParams, sink: SubscriptionSink) -> Result<SubscriptionToken, Error> {
+    pub async fn listen_to_broadcast(&self) {
+        while let Ok(res) = self.broadcast_receiver().recv().await {
+            let k = self.0.subscribers.get(&res.subscription_id).unwrap();
+            k.value()
+                .send(SubscriptionMessage::from_json(&res.json).unwrap())
+                .await;
+        }
+    }
+
+    pub async fn subscribe(
+        &self,
+        params: SubscriptionParams,
+        sink: PendingSubscriptionSink,
+    ) -> SubscriptionResult {
         debug!(
             "Total existing subscriptions: {}",
             self.0.subscriptions.len()
         );
-        let count = self.0.subscriptions.len();
-        let create_token_and_weak_ref = |id, params| {
-            let token = SubscriptionToken(
-                Arc::new(SubscriptionTokenInner {
-                    control: Arc::clone(&self.0),
-                    params,
-                    id,
-                }),
-                self.0.counter.create_token(),
-            );
-            let weak_ref = WeakSubscriptionTokenRef(Arc::downgrade(&token.0), token.0.id);
-            (token, weak_ref)
-        };
 
-        match self.0.subscriptions.entry(params) {
-            DashEntry::Occupied(mut entry) => match entry.get().0.upgrade() {
-                Some(token_ref) => Ok(SubscriptionToken(token_ref, self.0.counter.create_token())),
-                // This means the last Arc for this Weak pointer entered the drop just before us,
-                // but could not remove the entry since we are holding the write lock.
-                // See `Drop` implementation for `SubscriptionTokenInner` for further info.
-                None => {
-                    let (token, weak_ref) =
-                        create_token_and_weak_ref(entry.get().1, entry.key().clone());
-                    entry.insert(weak_ref);
-                    Ok(token)
-                }
-            },
-            DashEntry::Vacant(entry) => {
-                if count >= self.0.max_active_subscriptions {
-                    inc_new_counter_info!("rpc-subscription-refused-limit-reached", 1);
-                    return Err(Error::TooManySubscriptions);
-                }
-                let id = SubscriptionId::from(self.0.next_id.fetch_add(1, Ordering::AcqRel));
-                let (token, weak_ref) = create_token_and_weak_ref(id, entry.key().clone());
-                let _ = self
-                    .0
-                    .sender
-                    .send(NotificationEntry::Subscribed(token.0.params.clone(), id).into());
-                entry.insert(weak_ref);
-                datapoint_info!(
-                    "rpc-subscription",
-                    ("total", self.0.subscriptions.len(), i64)
-                );
-                Ok(token)
-            }
+        let mut ids = self.0.subscriptions.entry(params).or_default();
+
+        if ids.len() >= self.0.max_active_subscriptions as usize {
+            inc_new_counter_info!("rpc-subscription-refused-limit-reached", 1);
+
+            sink.reject(ErrorObject::owned(
+                ErrorCode::InternalError.code(),
+                "Internal Error: Subscription refused. Node subscription limit reached".to_string(),
+                None::<()>,
+            ));
+
+            return Ok(());
         }
+
+        let sink = sink.accept().await?;
+        let id = sink.subscription_id();
+        ids.push(id.clone());
+        self.0.subscribers.insert(id, sink);
+
+        Ok(())
     }
 
     pub fn total(&self) -> usize {
@@ -318,7 +289,7 @@ impl SubscriptionControl {
 
 #[derive(Debug)]
 pub struct SubscriptionInfo {
-    id: SubscriptionId,
+    id: SubscriptionId<'static>,
     params: SubscriptionParams,
     method: &'static str,
     pub last_notified_slot: RwLock<Slot>,
@@ -326,8 +297,8 @@ pub struct SubscriptionInfo {
 }
 
 impl SubscriptionInfo {
-    pub fn id(&self) -> SubscriptionId {
-        self.id
+    pub fn id(&self) -> SubscriptionId<'static> {
+        self.id.clone()
     }
 
     pub fn method(&self) -> &'static str {
@@ -343,11 +314,11 @@ impl SubscriptionInfo {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("node subscription limit reached")]
-    TooManySubscriptions,
-}
+//#[derive(Debug, Error)]
+//pub enum Error {
+//    #[error("node subscription limit reached")]
+//    TooManySubscriptions,
+//}
 
 struct LogsSubscriptionsIndex {
     all_count: usize,
@@ -418,11 +389,11 @@ impl LogsSubscriptionsIndex {
 
 pub struct SubscriptionsTracker {
     logs_subscriptions_index: LogsSubscriptionsIndex,
-    by_signature: HashMap<Signature, HashMap<SubscriptionId, Arc<SubscriptionInfo>>>,
+    by_signature: HashMap<Signature, HashMap<SubscriptionId<'static>, Arc<SubscriptionInfo>>>,
     // Accounts, logs, programs, signatures (not gossip)
-    commitment_watchers: HashMap<SubscriptionId, Arc<SubscriptionInfo>>,
+    commitment_watchers: HashMap<SubscriptionId<'static>, Arc<SubscriptionInfo>>,
     // Accounts, logs, programs, signatures (gossip)
-    gossip_watchers: HashMap<SubscriptionId, Arc<SubscriptionInfo>>,
+    gossip_watchers: HashMap<SubscriptionId<'static>, Arc<SubscriptionInfo>>,
     // Slots, slots updates, roots, votes.
     node_progress_watchers: HashMap<SubscriptionParams, Arc<SubscriptionInfo>>,
 }
@@ -446,12 +417,12 @@ impl SubscriptionsTracker {
     pub fn subscribe(
         &mut self,
         params: SubscriptionParams,
-        id: SubscriptionId,
+        id: SubscriptionId<'static>,
         last_notified_slot: impl FnOnce() -> Slot,
     ) {
         let info = Arc::new(SubscriptionInfo {
             last_notified_slot: RwLock::new(last_notified_slot()),
-            id,
+            id: id.clone(),
             commitment: params.commitment(),
             method: params.method(),
             params: params.clone(),
@@ -464,12 +435,12 @@ impl SubscriptionsTracker {
                 self.by_signature
                     .entry(params.signature)
                     .or_default()
-                    .insert(id, Arc::clone(&info));
+                    .insert(id.clone(), Arc::clone(&info));
             }
             _ => {}
         }
         if info.params.is_commitment_watcher() {
-            self.commitment_watchers.insert(id, Arc::clone(&info));
+            self.commitment_watchers.insert(id.clone(), Arc::clone(&info));
         }
         if info.params.is_gossip_watcher() {
             self.gossip_watchers.insert(id, Arc::clone(&info));
@@ -481,7 +452,7 @@ impl SubscriptionsTracker {
     }
 
     #[allow(clippy::collapsible_if)]
-    pub fn unsubscribe(&mut self, params: SubscriptionParams, id: SubscriptionId) {
+    pub fn unsubscribe(&mut self, params: SubscriptionParams, id: SubscriptionId<'static>) {
         match &params {
             SubscriptionParams::Logs(params) => {
                 self.logs_subscriptions_index.remove(params);
@@ -519,15 +490,15 @@ impl SubscriptionsTracker {
 
     pub fn by_signature(
         &self,
-    ) -> &HashMap<Signature, HashMap<SubscriptionId, Arc<SubscriptionInfo>>> {
+    ) -> &HashMap<Signature, HashMap<SubscriptionId<'static>, Arc<SubscriptionInfo>>> {
         &self.by_signature
     }
 
-    pub fn commitment_watchers(&self) -> &HashMap<SubscriptionId, Arc<SubscriptionInfo>> {
+    pub fn commitment_watchers(&self) -> &HashMap<SubscriptionId<'static>, Arc<SubscriptionInfo>> {
         &self.commitment_watchers
     }
 
-    pub fn gossip_watchers(&self) -> &HashMap<SubscriptionId, Arc<SubscriptionInfo>> {
+    pub fn gossip_watchers(&self) -> &HashMap<SubscriptionId<'static>, Arc<SubscriptionInfo>> {
         &self.gossip_watchers
     }
 
@@ -539,7 +510,7 @@ impl SubscriptionsTracker {
 struct SubscriptionTokenInner {
     control: Arc<SubscriptionControlInner>,
     params: SubscriptionParams,
-    id: SubscriptionId,
+    id: SubscriptionId<'static>,
 }
 
 impl fmt::Debug for SubscriptionTokenInner {
@@ -553,27 +524,27 @@ impl fmt::Debug for SubscriptionTokenInner {
 impl Drop for SubscriptionTokenInner {
     #[allow(clippy::collapsible_if)]
     fn drop(&mut self) {
-        match self.control.subscriptions.entry(self.params.clone()) {
-            DashEntry::Vacant(_) => {
-                warn!("Subscriptions inconsistency (missing entry in by_params)");
-            }
-            // Check the strong refs count to ensure no other thread recreated this subscription (not token)
-            // while we were acquiring the lock.
-            DashEntry::Occupied(entry) if entry.get().0.strong_count() == 0 => {
-                let _ = self
-                    .control
-                    .sender
-                    .send(NotificationEntry::Unsubscribed(self.params.clone(), self.id).into());
-                entry.remove();
-                datapoint_info!(
-                    "rpc-subscription",
-                    ("total", self.control.subscriptions.len(), i64)
-                );
-            }
-            // This branch handles the case in which this entry got recreated
-            // while we were waiting for the lock (inside the `DashMap::entry` method).
-            DashEntry::Occupied(_entry) /* if _entry.get().0.strong_count() > 0 */ => (),
-        }
+        //match self.control.subscriptions.entry(self.params.clone()) {
+        //    DashEntry::Vacant(_) => {
+        //        warn!("Subscriptions inconsistency (missing entry in by_params)");
+        //    }
+        //    // Check the strong refs count to ensure no other thread recreated this subscription (not token)
+        //    // while we were acquiring the lock.
+        //    DashEntry::Occupied(entry) if entry.get().0.strong_count() == 0 => {
+        //        let _ = self
+        //            .control
+        //            .sender
+        //            .send(NotificationEntry::Unsubscribed(self.params.clone(), self.id).into());
+        //        entry.remove();
+        //        datapoint_info!(
+        //            "rpc-subscription",
+        //            ("total", self.control.subscriptions.len(), i64)
+        //        );
+        //    }
+        //    // This branch handles the case in which this entry got recreated
+        //    // while we were waiting for the lock (inside the `DashMap::entry` method).
+        //    DashEntry::Occupied(_entry) /* if _entry.get().0.strong_count() > 0 */ => (),
+        //}
     }
 }
 
@@ -581,8 +552,8 @@ impl Drop for SubscriptionTokenInner {
 pub struct SubscriptionToken(Arc<SubscriptionTokenInner>, CounterToken);
 
 impl SubscriptionToken {
-    pub fn id(&self) -> SubscriptionId {
-        self.0.id
+    pub fn id(&self) -> SubscriptionId<'static> {
+        self.0.id.clone()
     }
 
     pub fn params(&self) -> &SubscriptionParams {

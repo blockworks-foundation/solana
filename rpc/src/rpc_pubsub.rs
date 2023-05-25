@@ -7,11 +7,9 @@ use {
         rpc_subscription_tracker::{
             AccountSubscriptionParams, BlockSubscriptionKind, BlockSubscriptionParams,
             LogsSubscriptionKind, LogsSubscriptionParams, ProgramSubscriptionParams,
-            SignatureSubscriptionParams, SubscriptionControl, SubscriptionId, SubscriptionParams,
-            SubscriptionToken,
+            SignatureSubscriptionParams, SubscriptionControl, SubscriptionParams,
         },
     },
-    dashmap::DashMap,
     jsonrpsee::types::error::ErrorCode,
     solana_account_decoder::UiAccountEncoding,
     solana_client::{
@@ -24,7 +22,7 @@ use {
     },
     solana_sdk::{pubkey::Pubkey, signature::Signature},
     solana_transaction_status::UiTransactionEncoding,
-    std::{str::FromStr, sync::Arc},
+    std::str::FromStr,
 };
 
 // We have to keep both of the following traits to not break backwards compatibility.
@@ -150,7 +148,11 @@ mod internal {
             item = RpcResponse<UiAccount>,
             unsubscribe = "accountUnsubscribe"
         )]
-        async fn account_subscribe(&self, pubkey_str: String, config: Option<RpcAccountInfoConfig>);
+        async fn account_subscribe(
+            &self,
+            pubkey_str: String,
+            config: Option<RpcAccountInfoConfig>,
+        ) -> SubscriptionResult;
 
         // Get notification every time account data owned by a particular program is changed
         // Accepts pubkey parameter as base-58 encoded string
@@ -163,7 +165,7 @@ mod internal {
             &self,
             pubkey_str: String,
             config: Option<RpcProgramAccountsConfig>,
-        );
+        ) -> SubscriptionResult;
 
         // Get logs for all transactions that reference the specified address
         #[subscription(
@@ -175,7 +177,7 @@ mod internal {
             &self,
             filter: RpcTransactionLogsFilter,
             config: Option<RpcTransactionLogsConfig>,
-        );
+        ) -> SubscriptionResult;
 
         // Get notification when signature is verified
         // Accepts signature parameter as base-58 encoded string
@@ -188,7 +190,7 @@ mod internal {
             &self,
             signature_str: String,
             config: Option<RpcSignatureSubscribeConfig>,
-        );
+        ) -> SubscriptionResult;
 
         // Get notification when slot is encountered
         #[subscription(
@@ -196,7 +198,7 @@ mod internal {
             unsubscribe = "slotUnsubscribe",
             item = SlotInfo
         )]
-        async fn slot_subscribe(&self);
+        async fn slot_subscribe(&self) -> SubscriptionResult;
 
         // Get series of updates for all slots
         #[subscription(
@@ -204,7 +206,7 @@ mod internal {
             unsubscribe = "slotsUpdatesUnsubscribe",
             item = Arc<SlotUpdate>,
         )]
-        async fn slots_updates_subscribe(&self);
+        async fn slots_updates_subscribe(&self) -> SubscriptionResult;
 
         // Subscribe to block data and content
         #[subscription(
@@ -216,7 +218,7 @@ mod internal {
             &self,
             filter: RpcBlockSubscribeFilter,
             config: Option<RpcBlockSubscribeConfig>,
-        );
+        ) -> SubscriptionResult;
 
         // Get notification when vote is encountered
         #[subscription(
@@ -224,7 +226,7 @@ mod internal {
             unsubscribe = "voteUnsubscribe",
             item = RpcVote
         )]
-        async fn vote_subscribe(&self);
+        async fn vote_subscribe(&self) -> SubscriptionResult;
 
         // Get notification when a new root is set
         #[subscription(
@@ -232,60 +234,22 @@ mod internal {
             unsubscribe = "rootUnsubscribe",
             item = Slot
         )]
-        async fn root_subscribe(&self);
+        async fn root_subscribe(&self) -> SubscriptionResult;
     }
 }
 
 pub struct RpcSolPubSubImpl {
-    config: PubSubConfig,
-    subscription_control: SubscriptionControl,
-    current_subscriptions: Arc<DashMap<SubscriptionId, SubscriptionToken>>,
+    pub config: PubSubConfig,
+    pub subscription_control: SubscriptionControl,
 }
 
 impl RpcSolPubSubImpl {
-    pub fn new(
-        config: PubSubConfig,
-        subscription_control: SubscriptionControl,
-        current_subscriptions: Arc<DashMap<SubscriptionId, SubscriptionToken>>,
-    ) -> Self {
-        Self {
-            config,
-            subscription_control,
-            current_subscriptions,
-        }
-    }
-
     async fn subscribe(
         &self,
         params: SubscriptionParams,
         sink: PendingSubscriptionSink,
     ) -> SubscriptionResult {
-        let sink = sink.accept().await?;
-
-        let token = self.subscription_control.subscribe(params, sink).map_err(|_| {
-            ErrorObject::owned(
-                ErrorCode::InternalError.code(),
-                "Internal Error: Subscription refused. Node subscription limit reached".to_string(),
-                None::<()>,
-            )
-        })?;
-
-        let id = token.id();
-        self.current_subscriptions.insert(id, token);
-
-        Ok(())
-    }
-
-    fn unsubscribe(&self, id: SubscriptionId) -> Result<bool> {
-        if self.current_subscriptions.remove(&id).is_some() {
-            Ok(true)
-        } else {
-            Err(ErrorObject::owned(
-                ErrorCode::InvalidParams.code(),
-                "Invalid subscription id.".to_string(),
-                None::<()>,
-            ))
-        }
+        self.subscription_control.subscribe(params, sink).await
     }
 }
 
@@ -299,8 +263,9 @@ fn param<T: FromStr>(param_str: &str, thing: &str) -> Result<T> {
     })
 }
 
+#[jsonrpsee::core::async_trait]
 impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
-    fn account_subscribe(
+    async fn account_subscribe(
         &self,
         sink: PendingSubscriptionSink,
         pubkey_str: String,
@@ -319,7 +284,8 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
             encoding: encoding.unwrap_or(UiAccountEncoding::Binary),
         };
 
-        self.subscribe(SubscriptionParams::Account(params), sink).await
+        self.subscribe(SubscriptionParams::Account(params), sink)
+            .await
     }
 
     async fn program_subscribe(
@@ -341,7 +307,8 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
             with_context: config.with_context.unwrap_or_default(),
         };
 
-        self.subscribe(SubscriptionParams::Program(params), sink).await
+        self.subscribe(SubscriptionParams::Program(params), sink)
+            .await
     }
 
     async fn logs_subscribe(
@@ -356,11 +323,13 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
                 RpcTransactionLogsFilter::AllWithVotes => LogsSubscriptionKind::AllWithVotes,
                 RpcTransactionLogsFilter::Mentions(keys) => {
                     if keys.len() != 1 {
-                        return Err(ErrorObject::owned(
+                        sink.reject(ErrorObject::owned(
                             ErrorCode::InvalidParams.code(),
                             "Invalid Request: Only 1 address supported".to_string(),
                             None::<()>,
-                        ));
+                        ))
+                        .await;
+                        return Ok(());
                     }
                     LogsSubscriptionKind::Single(param::<Pubkey>(&keys[0], "mentions")?)
                 }
@@ -384,7 +353,8 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
             enable_received_notification: config.enable_received_notification.unwrap_or_default(),
         };
 
-        self.subscribe(SubscriptionParams::Signature(params), sink).await
+        self.subscribe(SubscriptionParams::Signature(params), sink)
+            .await
     }
 
     async fn slot_subscribe(&self, sink: PendingSubscriptionSink) -> SubscriptionResult {
@@ -402,8 +372,10 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
         config: Option<RpcBlockSubscribeConfig>,
     ) -> SubscriptionResult {
         if !self.config.enable_block_subscription {
-            return Err(ErrorObject::from(ErrorCode::MethodNotFound));
+            sink.reject(ErrorObject::from(ErrorCode::MethodNotFound));
+            return Ok(());
         }
+
         let config = config.unwrap_or_default();
         let commitment = config.commitment.unwrap_or_default();
         check_is_at_least_confirmed(commitment)?;
@@ -424,21 +396,24 @@ impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
             max_supported_transaction_version: config.max_supported_transaction_version,
         };
 
-        self.subscribe(SubscriptionParams::Block, sink).await
+        self.subscribe(SubscriptionParams::Block(params), sink)
+            .await
     }
 
-    async fn vote_subscribe(&self, sink: PendingSubscriptionSink) -> Result<SubscriptionId> {
+    async fn vote_subscribe(&self, sink: PendingSubscriptionSink) -> SubscriptionResult {
         if !self.config.enable_vote_subscription {
-            return Err(ErrorObject::from(ErrorCode::MethodNotFound));
+            sink.reject(ErrorObject::from(ErrorCode::MethodNotFound))
+                .await;
+            return Ok(());
         }
         self.subscribe(SubscriptionParams::Vote, sink).await
     }
 
-    async fn root_subscribe(&self, sink: PendingSubscriptionSink) -> Result<SubscriptionId> {
+    async fn root_subscribe(&self, sink: PendingSubscriptionSink) -> SubscriptionResult {
         self.subscribe(SubscriptionParams::Root, sink).await
     }
 
-    fn get_version(&self, sink: PendingSubscriptionSink) -> Result<RpcVersionInfo> {
+    fn get_version(&self) -> Result<RpcVersionInfo> {
         let version = solana_version::Version::default();
         Ok(RpcVersionInfo {
             solana_core: version.to_string(),

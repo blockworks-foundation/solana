@@ -3580,9 +3580,7 @@ pub mod rpc_full {
             }
 
             if !skip_preflight {
-                if let Err(e) = verify_transaction(&transaction, &preflight_bank.feature_set) {
-                    return Err(e);
-                }
+                verify_transaction(&transaction, &preflight_bank.feature_set)?;
 
                 match self.meta.health.check() {
                     RpcHealthStatus::Ok => (),
