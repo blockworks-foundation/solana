@@ -378,9 +378,7 @@ async fn handle_connection(
     )
     .into_rpc();
 
-    let broadcast_handler = BroadcastHandler {
-        current_subscriptions,
-    };
+    let broadcast_handler = BroadcastHandler::new(current_subscriptions);
 
     loop {
         // Extra block for dropping `receive_future`.
