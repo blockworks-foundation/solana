@@ -725,6 +725,9 @@ fn account_index_from_rpc_account_index(rpc_account_index: &RpcAccountIndex) -> 
 
 // Start the Admin RPC interface
 pub fn run(ledger_path: &Path, meta: AdminRpcRequestMetadata) {
+    return;
+
+    #[allow(unreachable_code)]
     let admin_rpc_path = admin_rpc_path(ledger_path);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
