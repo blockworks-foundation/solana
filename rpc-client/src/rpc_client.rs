@@ -4075,13 +4075,16 @@ pub fn create_rpc_client_mocks() -> crate::mock_sender::Mocks {
 
 #[cfg(test)]
 mod tests {
+    use jsonrpsee::{
+        server::ServerBuilder,
+        types::{error::ErrorCode, ErrorObject, Params},
+        RpcModule,
+    };
+
     use {
         super::*,
         crate::mock_sender::PUBKEY,
         assert_matches::assert_matches,
-        crossbeam_channel::unbounded,
-        jsonrpc_core::{futures::prelude::*, Error, IoHandler, Params},
-        jsonrpc_http_server::{AccessControlAllowOrigin, DomainsValidation, ServerBuilder},
         serde_json::{json, Number},
         solana_rpc_client_api::client_error::ErrorKind,
         solana_sdk::{
@@ -4093,55 +4096,54 @@ mod tests {
         std::{io, thread},
     };
 
-    #[test]
-    fn test_send() {
-        _test_send();
+    #[tokio::test]
+    async fn test_send() {
+        _test_send().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     #[should_panic(expected = "can call blocking only when running on the multi-threaded runtime")]
     async fn test_send_async_current_thread() {
-        _test_send();
+        _test_send().await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_send_async_multi_thread() {
-        _test_send();
+        _test_send().await;
     }
 
-    fn _test_send() {
-        let (sender, receiver) = unbounded();
-        thread::spawn(move || {
-            let rpc_addr = "0.0.0.0:0".parse().unwrap();
-            let mut io = IoHandler::default();
-            // Successful request
-            io.add_method("getBalance", |_params: Params| {
-                future::ok(Value::Number(Number::from(50)))
-            });
-            // Failed request
-            io.add_method("getRecentBlockhash", |params: Params| {
-                if params != Params::None {
-                    future::err(Error::invalid_request())
-                } else {
-                    future::ok(Value::String(
-                        "deadbeefXjn8o3yroDHxUtKsZZgoy4GPkPPXfouKNHhx".to_string(),
-                    ))
-                }
-            });
+    async fn _test_send() {
+        let mut io = RpcModule::new(());
+        // Successful request
+        io.register_method("getBalance", |_, _| Value::Number(Number::from(50))).unwrap();
+        // Failed request
+        io.register_method("getRecentBlockhash", |params: Params, _| {
+            if params.is_object() {
+                Err(ErrorObject::from(ErrorCode::InvalidRequest))
+            } else {
+                Ok(Value::String(
+                    "deadbeefXjn8o3yroDHxUtKsZZgoy4GPkPPXfouKNHhx".to_string(),
+                ))
+            }
+        }).unwrap();
 
-            let server = ServerBuilder::new(io)
-                .threads(1)
-                .cors(DomainsValidation::AllowOnly(vec![
-                    AccessControlAllowOrigin::Any,
-                ]))
-                .start_http(&rpc_addr)
-                .expect("Unable to start RPC server");
-            sender.send(*server.address()).unwrap();
-            server.wait();
-        });
+        let cors = tower_http::cors::CorsLayer::new().allow_origin(tower_http::cors::Any);
 
-        let rpc_addr = receiver.recv().unwrap();
-        let rpc_client = RpcClient::new_socket(rpc_addr);
+        let middleware = tower::ServiceBuilder::new().layer(cors);
+
+        let server = ServerBuilder::new()
+            .set_middleware(middleware)
+            .build("0.0.0.0:0")
+            .await
+            .expect("Unable to build RPC server");
+
+        let addr = server.local_addr().unwrap();
+
+        server
+            .start(io)
+            .expect("Unable to start RPC server");
+
+        let rpc_client = RpcClient::new_socket(addr);
 
         let balance: u64 = rpc_client
             .send(

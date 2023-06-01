@@ -16,11 +16,7 @@ bs58 = { workspace = true }
 crossbeam-channel = { workspace = true }
 dashmap = { workspace = true }
 itertools = { workspace = true }
-jsonrpc-core = { workspace = true }
-jsonrpc-core-client = { workspace = true }
-jsonrpc-derive = { workspace = true }
-jsonrpc-http-server = { workspace = true }
-jsonrpc-pubsub = { workspace = true }
+jsonrpsee = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 rayon = { workspace = true }
@@ -57,6 +53,10 @@ stream-cancel = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true, features = ["codec", "compat"] }
+hyper = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+futures-util = "0.3.28"
 
 [dev-dependencies]
 serial_test = { workspace = true }

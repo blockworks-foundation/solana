@@ -1,15 +1,18 @@
 //! The `pubsub` module implements a threaded subscription service on client RPC request
 
+use std::panic;
+
+use crate::rpc_pubsub::RpcSolPubSubInternalServer;
+
 use {
     crate::{
-        rpc_pubsub::{RpcSolPubSubImpl, RpcSolPubSubInternal},
+        rpc_pubsub::RpcSolPubSubImpl,
         rpc_subscription_tracker::{
             SubscriptionControl, SubscriptionId, SubscriptionParams, SubscriptionToken,
         },
         rpc_subscriptions::{RpcNotification, RpcSubscriptions},
     },
     dashmap::{mapref::entry::Entry, DashMap},
-    jsonrpc_core::IoHandler,
     soketto::handshake::{server, Server},
     solana_metrics::TokenCounter,
     solana_sdk::timing::AtomicInterval,
@@ -190,6 +193,8 @@ impl SentNotificationStats {
     }
 }
 
+/// This is per susbscription connection
+/// each connection can have multiple subscriptions
 struct BroadcastHandler {
     current_subscriptions: Arc<DashMap<SubscriptionId, SubscriptionToken>>,
     sent_stats: Arc<SentNotificationStats>,
@@ -359,10 +364,12 @@ async fn handle_connection(
 ) -> Result<(), Error> {
     let mut server = Server::new(socket.compat());
     let request = server.receive_request().await?;
+
     let accept = server::Response::Accept {
         key: request.key(),
         protocol: None,
     };
+
     server.send_response(&accept).await?;
     let (mut sender, mut receiver) = server.into_builder().finish();
 
@@ -370,14 +377,15 @@ async fn handle_connection(
     let mut data = Vec::new();
     let current_subscriptions = Arc::new(DashMap::new());
 
-    let mut json_rpc_handler = IoHandler::new();
     let rpc_impl = RpcSolPubSubImpl::new(
         config,
         subscription_control,
         Arc::clone(&current_subscriptions),
-    );
-    json_rpc_handler.extend_with(rpc_impl.to_delegate());
+    )
+    .into_rpc();
+
     let broadcast_handler = BroadcastHandler::new(current_subscriptions);
+
     loop {
         // Extra block for dropping `receive_future`.
         {
@@ -407,6 +415,7 @@ async fn handle_connection(
                 }
             }
         }
+
         let data_str = match str::from_utf8(&data) {
             Ok(str) => str,
             Err(_) => {
@@ -416,9 +425,10 @@ async fn handle_connection(
             }
         };
 
-        if let Some(response) = json_rpc_handler.handle_request(data_str).await {
-            sender.send_text(&response).await?;
+        if let Ok((recv, _)) = rpc_impl.raw_json_request(data_str, 1).await {
+            sender.send_text(&recv.result).await?;
         }
+
         data.clear();
     }
 
@@ -442,6 +452,7 @@ async fn listen(
                     let config = config.clone();
                     let tripwire = tripwire.clone();
                     let counter_token = counter.create_token();
+
                     tokio::spawn(async move {
                         let handle = handle_connection(
                             socket, subscription_control, config, tripwire

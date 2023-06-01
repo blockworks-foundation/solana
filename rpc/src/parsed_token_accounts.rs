@@ -1,5 +1,7 @@
+use crate::rpc::invalid_params;
+
 use {
-    jsonrpc_core::{Error, Result},
+    super::rpc::Result,
     solana_account_decoder::{
         parse_account_data::AccountAdditionalData, parse_token::get_token_account_mint, UiAccount,
         UiAccountData, UiAccountEncoding,
@@ -76,9 +78,9 @@ pub fn get_mint_owner_and_decimals(bank: &Arc<Bank>, mint: &Pubkey) -> Result<(P
     if mint == &spl_token::native_mint::id() {
         Ok((spl_token::id(), spl_token::native_mint::DECIMALS))
     } else {
-        let mint_account = bank.get_account(mint).ok_or_else(|| {
-            Error::invalid_params("Invalid param: could not find mint".to_string())
-        })?;
+        let mint_account = bank
+            .get_account(mint)
+            .ok_or_else(|| invalid_params("Invalid param: could not find mint".to_string()))?;
         let decimals = get_mint_decimals(mint_account.data())?;
         Ok((*mint_account.owner(), decimals))
     }
@@ -86,8 +88,6 @@ pub fn get_mint_owner_and_decimals(bank: &Arc<Bank>, mint: &Pubkey) -> Result<(P
 
 fn get_mint_decimals(data: &[u8]) -> Result<u8> {
     StateWithExtensions::<Mint>::unpack(data)
-        .map_err(|_| {
-            Error::invalid_params("Invalid param: Token mint could not be unpacked".to_string())
-        })
+        .map_err(|_| invalid_params("Invalid param: Token mint could not be unpacked".to_string()))
         .map(|mint| mint.base.decimals)
 }

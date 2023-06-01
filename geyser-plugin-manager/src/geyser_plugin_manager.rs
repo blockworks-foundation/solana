@@ -1,10 +1,10 @@
+use jsonrpsee::types::ErrorObject;
+
 use {
-    jsonrpc_core::{ErrorCode, Result as JsonRpcResult},
-    jsonrpc_server_utils::tokio::sync::oneshot::Sender as OneShotSender,
-    libloading::Library,
-    log::*,
+    jsonrpsee::types::error::ErrorCode, libloading::Library, log::*,
     solana_geyser_plugin_interface::geyser_plugin_interface::GeyserPlugin,
-    std::path::Path,
+    solana_rpc::rpc::Result as JsonRpcResult, std::path::Path,
+    tokio::sync::oneshot::Sender as OneShotSender,
 };
 
 #[derive(Default, Debug)]
@@ -84,11 +84,11 @@ impl GeyserPluginManager {
         // First load plugin
         let (mut new_plugin, new_lib, new_config_file) =
             load_plugin_from_config(geyser_plugin_config_file.as_ref()).map_err(|e| {
-                jsonrpc_core::Error {
-                    code: ErrorCode::InvalidRequest,
-                    message: format!("Failed to load plugin: {e}"),
-                    data: None,
-                }
+                ErrorObject::owned(
+                    ErrorCode::InvalidRequest.code(),
+                    format!("Failed to load plugin: {e}"),
+                    None::<()>,
+                )
             })?;
 
         // Then see if a plugin with this name already exists. If so, abort
@@ -97,27 +97,27 @@ impl GeyserPluginManager {
             .iter()
             .any(|plugin| plugin.name().eq(new_plugin.name()))
         {
-            return Err(jsonrpc_core::Error {
-                code: ErrorCode::InvalidRequest,
-                message: format!(
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidRequest.code(),
+                format!(
                     "There already exists a plugin named {} loaded. Did not load requested plugin",
                     new_plugin.name()
                 ),
-                data: None,
-            });
+                None::<()>,
+            ));
         }
 
         // Call on_load and push plugin
-        new_plugin
-            .on_load(new_config_file)
-            .map_err(|on_load_err| jsonrpc_core::Error {
-                code: ErrorCode::InvalidRequest,
-                message: format!(
+        new_plugin.on_load(new_config_file).map_err(|on_load_err| {
+            ErrorObject::owned(
+                ErrorCode::InvalidRequest.code(),
+                format!(
                     "on_load method of plugin {} failed: {on_load_err}",
                     new_plugin.name()
                 ),
-                data: None,
-            })?;
+                None::<()>,
+            )
+        })?;
         let name = new_plugin.name().to_string();
         self.plugins.push(new_plugin);
         self.libs.push(new_lib);
@@ -130,11 +130,11 @@ impl GeyserPluginManager {
         let Some(idx) = self.plugins.iter().position(|plugin| plugin.name().eq(name)) else {
             // If we don't find one return an error
             return Err(
-                jsonrpc_core::error::Error {
-                    code: ErrorCode::InvalidRequest,
-                    message: String::from("The plugin you requested to unload is not loaded"),
-                    data: None,
-                }
+                ErrorObject::owned(
+                    ErrorCode::InvalidRequest.code(),
+                    "The plugin you requested to unload is not loaded".to_string(),
+                    None::<()>,
+                )
             )
         };
 
@@ -152,11 +152,11 @@ impl GeyserPluginManager {
         let Some(idx) = self.plugins.iter().position(|plugin| plugin.name().eq(name)) else {
             // If we don't find one return an error
             return Err(
-                jsonrpc_core::error::Error {
-                    code: ErrorCode::InvalidRequest,
-                    message: String::from("The plugin you requested to reload is not loaded"),
-                    data: None,
-                }
+                ErrorObject::owned(
+                    ErrorCode::InvalidRequest.code(),
+                    "The plugin you requested to reload is not loaded".to_string(),
+                    None::<()>,
+                )
             )
         };
 
@@ -167,10 +167,12 @@ impl GeyserPluginManager {
         // Try to load plugin, library
         // SAFETY: It is up to the validator to ensure this is a valid plugin library.
         let (mut new_plugin, new_lib, new_parsed_config_file) =
-            load_plugin_from_config(config_file.as_ref()).map_err(|err| jsonrpc_core::Error {
-                code: ErrorCode::InvalidRequest,
-                message: err.to_string(),
-                data: None,
+            load_plugin_from_config(config_file.as_ref()).map_err(|err| {
+                ErrorObject::owned(
+                    ErrorCode::InvalidRequest.code(),
+                    err.to_string(),
+                    None::<()>,
+                )
             })?;
 
         // Attempt to on_load with new plugin
@@ -183,13 +185,11 @@ impl GeyserPluginManager {
 
             // On failure, return error
             Err(err) => {
-                return Err(jsonrpc_core::error::Error {
-                    code: ErrorCode::InvalidRequest,
-                    message: format!(
-                        "Failed to start new plugin (previous plugin was dropped!): {err}"
-                    ),
-                    data: None,
-                });
+                return Err(ErrorObject::owned(
+                    ErrorCode::InvalidRequest.code(),
+                    format!("Failed to start new plugin (previous plugin was dropped!): {err}"),
+                    None::<()>,
+                ));
             }
         }
 
@@ -394,7 +394,7 @@ mod tests {
         let mut plugin_manager_lock = plugin_manager.write().unwrap();
         let reload_result = plugin_manager_lock.reload_plugin(DUMMY_NAME, DUMMY_CONFIG);
         assert_eq!(
-            reload_result.unwrap_err().message,
+            reload_result.unwrap_err().message(),
             "The plugin you requested to reload is not loaded"
         );
 
@@ -411,7 +411,7 @@ mod tests {
         const WRONG_NAME: &str = "wrong_name";
         let reload_result = plugin_manager_lock.reload_plugin(WRONG_NAME, DUMMY_CONFIG);
         assert_eq!(
-            reload_result.unwrap_err().message,
+            reload_result.unwrap_err().message(),
             "The plugin you requested to reload is not loaded"
         );
 

@@ -3,7 +3,7 @@
 use crate::{rpc_pubsub_service, rpc_subscriptions::RpcSubscriptions};
 use {
     crate::{
-        rpc::check_is_at_least_confirmed,
+        rpc::{check_is_at_least_confirmed, Result},
         rpc_pubsub_service::PubSubConfig,
         rpc_subscription_tracker::{
             AccountSubscriptionParams, BlockSubscriptionKind, BlockSubscriptionParams,
@@ -13,22 +13,17 @@ use {
         },
     },
     dashmap::DashMap,
-    jsonrpc_core::{Error, ErrorCode, Result},
-    jsonrpc_derive::rpc,
-    jsonrpc_pubsub::{typed::Subscriber, SubscriptionId as PubSubSubscriptionId},
-    solana_account_decoder::{UiAccount, UiAccountEncoding},
+    jsonrpsee::types::error::ErrorCode,
+    solana_account_decoder::UiAccountEncoding,
     solana_rpc_client_api::{
         config::{
             RpcAccountInfoConfig, RpcBlockSubscribeConfig, RpcBlockSubscribeFilter,
             RpcProgramAccountsConfig, RpcSignatureSubscribeConfig, RpcTransactionLogsConfig,
             RpcTransactionLogsFilter,
         },
-        response::{
-            Response as RpcResponse, RpcBlockUpdate, RpcKeyedAccount, RpcLogsResponse,
-            RpcSignatureResult, RpcVersionInfo, RpcVote, SlotInfo, SlotUpdate,
-        },
+        response::RpcVersionInfo,
     },
-    solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
+    solana_sdk::{pubkey::Pubkey, signature::Signature},
     solana_transaction_status::UiTransactionEncoding,
     std::{str::FromStr, sync::Arc},
 };
@@ -44,220 +39,108 @@ use {
 // Suppress needless_return due to
 //   https://github.com/paritytech/jsonrpc/blob/2d38e6424d8461cdf72e78425ce67d51af9c6586/derive/src/lib.rs#L204
 // Once https://github.com/paritytech/jsonrpc/issues/418 is resolved, try to remove this clippy allow
-#[allow(clippy::needless_return)]
-#[rpc]
+#[rpc(server)]
 pub trait RpcSolPubSub {
-    type Metadata;
-
     // Get notification every time account data is changed
     // Accepts pubkey parameter as base-58 encoded string
-    #[pubsub(
-        subscription = "accountNotification",
-        subscribe,
-        name = "accountSubscribe"
+    #[subscription(
+        name = "accountSubscribe" => "accountNotification",
+        item = RpcResponse<UiAccount>,
+        unsubscribe = "accountUnsubscribe"
     )]
-    fn account_subscribe(
-        &self,
-        meta: Self::Metadata,
-        subscriber: Subscriber<RpcResponse<UiAccount>>,
-        pubkey_str: String,
-        config: Option<RpcAccountInfoConfig>,
-    );
-
-    // Unsubscribe from account notification subscription.
-    #[pubsub(
-        subscription = "accountNotification",
-        unsubscribe,
-        name = "accountUnsubscribe"
-    )]
-    fn account_unsubscribe(
-        &self,
-        meta: Option<Self::Metadata>,
-        id: PubSubSubscriptionId,
-    ) -> Result<bool>;
+    async fn account_subscribe(&self, pubkey_str: String, config: Option<RpcAccountInfoConfig>);
 
     // Get notification every time account data owned by a particular program is changed
     // Accepts pubkey parameter as base-58 encoded string
-    #[pubsub(
-        subscription = "programNotification",
-        subscribe,
-        name = "programSubscribe"
+    #[subscription(
+        name = "programSubscribe" => "programNotification",
+        item = RpcResponse<RpcKeyedAccount>,
+        unsubscribe = "programUnsubscribe"
     )]
-    fn program_subscribe(
-        &self,
-        meta: Self::Metadata,
-        subscriber: Subscriber<RpcResponse<RpcKeyedAccount>>,
-        pubkey_str: String,
-        config: Option<RpcProgramAccountsConfig>,
-    );
-
-    // Unsubscribe from account notification subscription.
-    #[pubsub(
-        subscription = "programNotification",
-        unsubscribe,
-        name = "programUnsubscribe"
-    )]
-    fn program_unsubscribe(
-        &self,
-        meta: Option<Self::Metadata>,
-        id: PubSubSubscriptionId,
-    ) -> Result<bool>;
+    async fn program_subscribe(&self, pubkey_str: String, config: Option<RpcProgramAccountsConfig>);
 
     // Get logs for all transactions that reference the specified address
-    #[pubsub(subscription = "logsNotification", subscribe, name = "logsSubscribe")]
-    fn logs_subscribe(
+    #[subscription(
+        name= "logsSubscribe" => "logsNotification",
+        item = RpcResponse<RpcLogsResponse>,
+        unsubscribe = "logsUnsubscribe"
+    )]
+    async fn logs_subscribe(
         &self,
-        meta: Self::Metadata,
-        subscriber: Subscriber<RpcResponse<RpcLogsResponse>>,
         filter: RpcTransactionLogsFilter,
         config: Option<RpcTransactionLogsConfig>,
     );
 
-    // Unsubscribe from logs notification subscription.
-    #[pubsub(
-        subscription = "logsNotification",
-        unsubscribe,
-        name = "logsUnsubscribe"
-    )]
-    fn logs_unsubscribe(
-        &self,
-        meta: Option<Self::Metadata>,
-        id: PubSubSubscriptionId,
-    ) -> Result<bool>;
-
     // Get notification when signature is verified
     // Accepts signature parameter as base-58 encoded string
-    #[pubsub(
-        subscription = "signatureNotification",
-        subscribe,
-        name = "signatureSubscribe"
+    #[subscription(
+        name = "signatureSubscribe" => "signatureNotification", 
+        unsubscribe = "signatureUnsubscribe",
+        item = RpcResponse<RpcSignatureResult>
     )]
-    fn signature_subscribe(
+    async fn signature_subscribe(
         &self,
-        meta: Self::Metadata,
-        subscriber: Subscriber<RpcResponse<RpcSignatureResult>>,
         signature_str: String,
         config: Option<RpcSignatureSubscribeConfig>,
     );
 
-    // Unsubscribe from signature notification subscription.
-    #[pubsub(
-        subscription = "signatureNotification",
-        unsubscribe,
-        name = "signatureUnsubscribe"
-    )]
-    fn signature_unsubscribe(
-        &self,
-        meta: Option<Self::Metadata>,
-        id: PubSubSubscriptionId,
-    ) -> Result<bool>;
-
     // Get notification when slot is encountered
-    #[pubsub(subscription = "slotNotification", subscribe, name = "slotSubscribe")]
-    fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<SlotInfo>);
-
-    // Unsubscribe from slot notification subscription.
-    #[pubsub(
-        subscription = "slotNotification",
-        unsubscribe,
-        name = "slotUnsubscribe"
+    #[subscription(
+        name = "slotSubscribe" => "slotNotification",
+        unsubscribe = "slotUnsubscribe",
+        item = SlotInfo
     )]
-    fn slot_unsubscribe(
-        &self,
-        meta: Option<Self::Metadata>,
-        id: PubSubSubscriptionId,
-    ) -> Result<bool>;
+    async fn slot_subscribe(&self);
 
     // Get series of updates for all slots
-    #[pubsub(
-        subscription = "slotsUpdatesNotification",
-        subscribe,
-        name = "slotsUpdatesSubscribe"
+    #[subscription(
+        name = "slotsUpdatesSubscribe" => "slotsUpdatesNotification",
+        unsubscribe = "slotsUpdatesUnsubscribe",
+        item = Arc<SlotUpdate>,
     )]
-    fn slots_updates_subscribe(
-        &self,
-        meta: Self::Metadata,
-        subscriber: Subscriber<Arc<SlotUpdate>>,
-    );
-
-    // Unsubscribe from slots updates notification subscription.
-    #[pubsub(
-        subscription = "slotsUpdatesNotification",
-        unsubscribe,
-        name = "slotsUpdatesUnsubscribe"
-    )]
-    fn slots_updates_unsubscribe(
-        &self,
-        meta: Option<Self::Metadata>,
-        id: PubSubSubscriptionId,
-    ) -> Result<bool>;
+    async fn slots_updates_subscribe(&self);
 
     // Subscribe to block data and content
-    #[pubsub(subscription = "blockNotification", subscribe, name = "blockSubscribe")]
-    fn block_subscribe(
+    #[subscription(
+        name = "blockSubscribe" => "blockNotification",
+        unsubscribe = "blockUnsubscribe",
+        item = Arc<RpcBlockUpdate>
+    )]
+    async fn block_subscribe(
         &self,
-        meta: Self::Metadata,
-        subscriber: Subscriber<Arc<RpcBlockUpdate>>,
         filter: RpcBlockSubscribeFilter,
         config: Option<RpcBlockSubscribeConfig>,
     );
 
-    // Unsubscribe from block notification subscription.
-    #[pubsub(
-        subscription = "blockNotification",
-        unsubscribe,
-        name = "blockUnsubscribe"
-    )]
-    fn block_unsubscribe(
-        &self,
-        meta: Option<Self::Metadata>,
-        id: PubSubSubscriptionId,
-    ) -> Result<bool>;
-
     // Get notification when vote is encountered
-    #[pubsub(subscription = "voteNotification", subscribe, name = "voteSubscribe")]
-    fn vote_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcVote>);
-
-    // Unsubscribe from vote notification subscription.
-    #[pubsub(
-        subscription = "voteNotification",
-        unsubscribe,
-        name = "voteUnsubscribe"
+    #[subscription(
+        name = "voteSubscribe" => "voteNotification",
+        unsubscribe = "voteUnsubscribe",
+        item = RpcVote
     )]
-    fn vote_unsubscribe(
-        &self,
-        meta: Option<Self::Metadata>,
-        id: PubSubSubscriptionId,
-    ) -> Result<bool>;
+    async fn vote_subscribe(&self);
 
     // Get notification when a new root is set
-    #[pubsub(subscription = "rootNotification", subscribe, name = "rootSubscribe")]
-    fn root_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<Slot>);
-
-    // Unsubscribe from slot notification subscription.
-    #[pubsub(
-        subscription = "rootNotification",
-        unsubscribe,
-        name = "rootUnsubscribe"
+    #[subscription(
+        name = "rootSubscribe" => "rootNotification",
+        unsubscribe = "rootUnsubscribe",
+        item = Slot
     )]
-    fn root_unsubscribe(
-        &self,
-        meta: Option<Self::Metadata>,
-        id: PubSubSubscriptionId,
-    ) -> Result<bool>;
+    async fn root_subscribe(&self);
 }
 
-pub use internal::RpcSolPubSubInternal;
+pub use internal::RpcSolPubSubInternalServer;
+use jsonrpsee::{proc_macros::rpc, types::ErrorObject};
 
 // We have to use a separate module so the code generated by different `rpc` macro invocations do not interfere with each other.
 mod internal {
     use super::*;
 
-    #[rpc]
+    #[rpc(server)]
     pub trait RpcSolPubSubInternal {
         // Get notification every time account data is changed
         // Accepts pubkey parameter as base-58 encoded string
-        #[rpc(name = "accountSubscribe")]
+        #[method(name = "accountSubscribe")]
         fn account_subscribe(
             &self,
             pubkey_str: String,
@@ -265,12 +148,12 @@ mod internal {
         ) -> Result<SubscriptionId>;
 
         // Unsubscribe from account notification subscription.
-        #[rpc(name = "accountUnsubscribe")]
+        #[method(name = "accountUnsubscribe")]
         fn account_unsubscribe(&self, id: SubscriptionId) -> Result<bool>;
 
         // Get notification every time account data owned by a particular program is changed
         // Accepts pubkey parameter as base-58 encoded string
-        #[rpc(name = "programSubscribe")]
+        #[method(name = "programSubscribe")]
         fn program_subscribe(
             &self,
             pubkey_str: String,
@@ -278,11 +161,11 @@ mod internal {
         ) -> Result<SubscriptionId>;
 
         // Unsubscribe from account notification subscription.
-        #[rpc(name = "programUnsubscribe")]
+        #[method(name = "programUnsubscribe")]
         fn program_unsubscribe(&self, id: SubscriptionId) -> Result<bool>;
 
         // Get logs for all transactions that reference the specified address
-        #[rpc(name = "logsSubscribe")]
+        #[method(name = "logsSubscribe")]
         fn logs_subscribe(
             &self,
             filter: RpcTransactionLogsFilter,
@@ -290,12 +173,12 @@ mod internal {
         ) -> Result<SubscriptionId>;
 
         // Unsubscribe from logs notification subscription.
-        #[rpc(name = "logsUnsubscribe")]
+        #[method(name = "logsUnsubscribe")]
         fn logs_unsubscribe(&self, id: SubscriptionId) -> Result<bool>;
 
         // Get notification when signature is verified
         // Accepts signature parameter as base-58 encoded string
-        #[rpc(name = "signatureSubscribe")]
+        #[method(name = "signatureSubscribe")]
         fn signature_subscribe(
             &self,
             signature_str: String,
@@ -303,27 +186,27 @@ mod internal {
         ) -> Result<SubscriptionId>;
 
         // Unsubscribe from signature notification subscription.
-        #[rpc(name = "signatureUnsubscribe")]
+        #[method(name = "signatureUnsubscribe")]
         fn signature_unsubscribe(&self, id: SubscriptionId) -> Result<bool>;
 
         // Get notification when slot is encountered
-        #[rpc(name = "slotSubscribe")]
+        #[method(name = "slotSubscribe")]
         fn slot_subscribe(&self) -> Result<SubscriptionId>;
 
         // Unsubscribe from slot notification subscription.
-        #[rpc(name = "slotUnsubscribe")]
+        #[method(name = "slotUnsubscribe")]
         fn slot_unsubscribe(&self, id: SubscriptionId) -> Result<bool>;
 
         // Get series of updates for all slots
-        #[rpc(name = "slotsUpdatesSubscribe")]
+        #[method(name = "slotsUpdatesSubscribe")]
         fn slots_updates_subscribe(&self) -> Result<SubscriptionId>;
 
         // Unsubscribe from slots updates notification subscription.
-        #[rpc(name = "slotsUpdatesUnsubscribe")]
+        #[method(name = "slotsUpdatesUnsubscribe")]
         fn slots_updates_unsubscribe(&self, id: SubscriptionId) -> Result<bool>;
 
         // Subscribe to block data and content
-        #[rpc(name = "blockSubscribe")]
+        #[method(name = "blockSubscribe")]
         fn block_subscribe(
             &self,
             filter: RpcBlockSubscribeFilter,
@@ -331,27 +214,27 @@ mod internal {
         ) -> Result<SubscriptionId>;
 
         // Unsubscribe from block notification subscription.
-        #[rpc(name = "blockUnsubscribe")]
+        #[method(name = "blockUnsubscribe")]
         fn block_unsubscribe(&self, id: SubscriptionId) -> Result<bool>;
 
         // Get notification when vote is encountered
-        #[rpc(name = "voteSubscribe")]
+        #[method(name = "voteSubscribe")]
         fn vote_subscribe(&self) -> Result<SubscriptionId>;
 
         // Unsubscribe from vote notification subscription.
-        #[rpc(name = "voteUnsubscribe")]
+        #[method(name = "voteUnsubscribe")]
         fn vote_unsubscribe(&self, id: SubscriptionId) -> Result<bool>;
 
         // Get notification when a new root is set
-        #[rpc(name = "rootSubscribe")]
+        #[method(name = "rootSubscribe")]
         fn root_subscribe(&self) -> Result<SubscriptionId>;
 
         // Unsubscribe from slot notification subscription.
-        #[rpc(name = "rootUnsubscribe")]
+        #[method(name = "rootUnsubscribe")]
         fn root_unsubscribe(&self, id: SubscriptionId) -> Result<bool>;
 
         // Get the current solana version running on the node
-        #[rpc(name = "getVersion")]
+        #[method(name = "getVersion")]
         fn get_version(&self) -> Result<RpcVersionInfo>;
     }
 }
@@ -376,15 +259,13 @@ impl RpcSolPubSubImpl {
     }
 
     fn subscribe(&self, params: SubscriptionParams) -> Result<SubscriptionId> {
-        let token = self
-            .subscription_control
-            .subscribe(params)
-            .map_err(|_| Error {
-                code: ErrorCode::InternalError,
-                message: "Internal Error: Subscription refused. Node subscription limit reached"
-                    .into(),
-                data: None,
-            })?;
+        let token = self.subscription_control.subscribe(params).map_err(|_| {
+            ErrorObject::owned(
+                ErrorCode::InternalError.code(),
+                "Internal Error: Subscription refused. Node subscription limit reached".to_string(),
+                None::<()>,
+            )
+        })?;
         let id = token.id();
         self.current_subscriptions.insert(id, token);
         Ok(id)
@@ -394,11 +275,11 @@ impl RpcSolPubSubImpl {
         if self.current_subscriptions.remove(&id).is_some() {
             Ok(true)
         } else {
-            Err(Error {
-                code: ErrorCode::InvalidParams,
-                message: "Invalid subscription id.".into(),
-                data: None,
-            })
+            Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                "Invalid subscription id.".to_string(),
+                None::<()>,
+            ))
         }
     }
 
@@ -412,14 +293,16 @@ impl RpcSolPubSubImpl {
 }
 
 fn param<T: FromStr>(param_str: &str, thing: &str) -> Result<T> {
-    param_str.parse::<T>().map_err(|_e| Error {
-        code: ErrorCode::InvalidParams,
-        message: format!("Invalid Request: Invalid {thing} provided"),
-        data: None,
+    param_str.parse::<T>().map_err(|_e| {
+        ErrorObject::owned(
+            ErrorCode::InternalError.code(),
+            format!("Invalid Request: Invalid {thing} provided"),
+            None::<()>,
+        )
     })
 }
 
-impl RpcSolPubSubInternal for RpcSolPubSubImpl {
+impl RpcSolPubSubInternalServer for RpcSolPubSubImpl {
     fn account_subscribe(
         &self,
         pubkey_str: String,
@@ -479,11 +362,11 @@ impl RpcSolPubSubInternal for RpcSolPubSubImpl {
                 RpcTransactionLogsFilter::AllWithVotes => LogsSubscriptionKind::AllWithVotes,
                 RpcTransactionLogsFilter::Mentions(keys) => {
                     if keys.len() != 1 {
-                        return Err(Error {
-                            code: ErrorCode::InvalidParams,
-                            message: "Invalid Request: Only 1 address supported".into(),
-                            data: None,
-                        });
+                        return Err(ErrorObject::owned(
+                            ErrorCode::InvalidParams.code(),
+                            "Invalid Request: Only 1 address supported".to_string(),
+                            None::<()>,
+                        ));
                     }
                     LogsSubscriptionKind::Single(param::<Pubkey>(&keys[0], "mentions")?)
                 }
@@ -537,7 +420,7 @@ impl RpcSolPubSubInternal for RpcSolPubSubImpl {
         config: Option<RpcBlockSubscribeConfig>,
     ) -> Result<SubscriptionId> {
         if !self.config.enable_block_subscription {
-            return Err(Error::new(jsonrpc_core::ErrorCode::MethodNotFound));
+            return Err(ErrorObject::from(ErrorCode::MethodNotFound));
         }
         let config = config.unwrap_or_default();
         let commitment = config.commitment.unwrap_or_default();
@@ -563,21 +446,21 @@ impl RpcSolPubSubInternal for RpcSolPubSubImpl {
 
     fn block_unsubscribe(&self, id: SubscriptionId) -> Result<bool> {
         if !self.config.enable_block_subscription {
-            return Err(Error::new(jsonrpc_core::ErrorCode::MethodNotFound));
+            return Err(ErrorObject::from(ErrorCode::MethodNotFound));
         }
         self.unsubscribe(id)
     }
 
     fn vote_subscribe(&self) -> Result<SubscriptionId> {
         if !self.config.enable_vote_subscription {
-            return Err(Error::new(jsonrpc_core::ErrorCode::MethodNotFound));
+            return Err(ErrorObject::from(ErrorCode::MethodNotFound));
         }
         self.subscribe(SubscriptionParams::Vote)
     }
 
     fn vote_unsubscribe(&self, id: SubscriptionId) -> Result<bool> {
         if !self.config.enable_vote_subscription {
-            return Err(Error::new(jsonrpc_core::ErrorCode::MethodNotFound));
+            return Err(ErrorObject::from(ErrorCode::MethodNotFound));
         }
         self.unsubscribe(id)
     }
@@ -601,8 +484,11 @@ impl RpcSolPubSubInternal for RpcSolPubSubImpl {
 
 #[cfg(test)]
 mod tests {
+
+    use jsonrpsee::{types::response::Response, RpcModule};
+    use serde_json::Value;
     use {
-        super::{RpcSolPubSubInternal, *},
+        super::*,
         crate::{
             optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank, rpc_pubsub_service,
             rpc_subscriptions::RpcSubscriptions,
@@ -717,15 +603,15 @@ mod tests {
         let expected_res =
             RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult { err: None });
         let expected = json!({
-           "jsonrpc": "2.0",
-           "method": "signatureNotification",
-           "params": {
-               "result": {
-                   "context": { "slot": 0 },
-                   "value": expected_res,
-               },
-               "subscription": 0,
-           }
+            "jsonrpc": "2.0",
+            "method": "signatureNotification",
+            "params": {
+                "result": {
+                    "context": { "slot": 0 },
+                    "value": expected_res,
+                },
+                "subscription": 0,
+            }
         });
 
         assert_eq!(
@@ -752,15 +638,15 @@ mod tests {
         let expected_res =
             RpcSignatureResult::ReceivedSignature(ReceivedSignatureResult::ReceivedSignature);
         let expected = json!({
-           "jsonrpc": "2.0",
-           "method": "signatureNotification",
-           "params": {
-               "result": {
-                   "context": { "slot": received_slot },
-                   "value": expected_res,
-               },
-               "subscription": 1,
-           }
+            "jsonrpc": "2.0",
+            "method": "signatureNotification",
+            "params": {
+                "result": {
+                    "context": { "slot": received_slot },
+                    "value": expected_res,
+                },
+                "subscription": 1,
+            }
         });
         assert_eq!(
             expected,
@@ -786,15 +672,15 @@ mod tests {
         let expected_res =
             RpcSignatureResult::ReceivedSignature(ReceivedSignatureResult::ReceivedSignature);
         let expected = json!({
-           "jsonrpc": "2.0",
-           "method": "signatureNotification",
-           "params": {
-               "result": {
-                   "context": { "slot": received_slot },
-                   "value": expected_res,
-               },
-               "subscription": 2,
-           }
+            "jsonrpc": "2.0",
+             "method": "signatureNotification",
+             "params": {
+                 "result": {
+                     "context": { "slot": received_slot },
+                     "value": expected_res,
+                 },
+                 "subscription": 2,
+             }
         });
         assert_eq!(
             expected,
@@ -802,9 +688,9 @@ mod tests {
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[serial]
-    fn test_signature_unsubscribe() {
+    async fn test_signature_unsubscribe() {
         let GenesisConfigInfo {
             genesis_config,
             mint_keypair: alice,
@@ -815,7 +701,7 @@ mod tests {
         let blockhash = bank.last_blockhash();
         let bank_forks = Arc::new(RwLock::new(BankForks::new(bank)));
 
-        let mut io = IoHandler::<()>::default();
+        let mut io = RpcModule::new(());
         let max_complete_transaction_status_slot = Arc::new(AtomicU64::default());
         let max_complete_rewards_slot = Arc::new(AtomicU64::default());
         let subscriptions = Arc::new(RpcSubscriptions::default_with_bank_forks(
@@ -825,32 +711,32 @@ mod tests {
         ));
         let (rpc, _receiver) = rpc_pubsub_service::test_connection(&subscriptions);
 
-        io.extend_with(rpc.to_delegate());
+        io.merge(rpc.into_rpc()).unwrap();
 
         let tx = system_transaction::transfer(&alice, &bob_pubkey, 20, blockhash);
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"signatureSubscribe","params":["{}"]}}"#,
             tx.signatures[0]
         );
-        let _res = io.handle_request_sync(&req);
+        let _ = io.raw_json_request(&req, 1).await.unwrap();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"signatureUnsubscribe","params":[0]}"#;
-        let res = io.handle_request_sync(req);
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
 
         let expected = r#"{"jsonrpc":"2.0","result":true,"id":1}"#;
-        let expected: Response = serde_json::from_str(expected).unwrap();
+        let expected: Response<bool> = serde_json::from_str(expected).unwrap();
 
-        let result: Response = serde_json::from_str(&res.unwrap()).unwrap();
-        assert_eq!(result, expected);
+        let result: Response<bool> = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result.payload, expected.payload);
 
         // Test bad parameter
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"signatureUnsubscribe","params":[1]}"#;
-        let res = io.handle_request_sync(req);
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
         let expected = r#"{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid subscription id."},"id":1}"#;
-        let expected: Response = serde_json::from_str(expected).unwrap();
+        let expected: Response<()> = serde_json::from_str(expected).unwrap();
 
-        let result: Response = serde_json::from_str(&res.unwrap()).unwrap();
-        assert_eq!(result, expected);
+        let result: Response<()> = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result.payload, expected.payload);
     }
 
     #[test]
@@ -1057,22 +943,22 @@ mod tests {
         )
         .unwrap();
         let expected = json!({
-           "jsonrpc": "2.0",
-           "method": "accountNotification",
-           "params": {
-               "result": {
-                   "context": { "slot": 1 },
-                   "value": {
-                       "owner": system_program::id().to_string(),
-                       "lamports": 100,
-                       "data": expected_data,
-                       "executable": false,
-                       "rentEpoch": u64::MAX,
-                       "space": account.data().len(),
-                   },
-               },
-               "subscription": 0,
-           }
+            "jsonrpc": "2.0",
+            "method": "accountNotification",
+            "params": {
+                "result": {
+                    "context": { "slot": 1 },
+                    "value": {
+                        "owner": system_program::id().to_string(),
+                        "lamports": 100,
+                        "data": expected_data,
+                        "executable": false,
+                        "rentEpoch": u64::MAX,
+                        "space": account.data().len(),
+                    },
+                },
+                "subscription": 0,
+            }
         });
 
         let response = receiver.recv();
@@ -1082,9 +968,9 @@ mod tests {
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[serial]
-    fn test_account_unsubscribe() {
+    async fn test_account_unsubscribe() {
         let bob_pubkey = solana_sdk::pubkey::new_rand();
 
         let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10_000);
@@ -1092,7 +978,6 @@ mod tests {
             &genesis_config,
         ))));
 
-        let mut io = IoHandler::<()>::default();
         let max_complete_transaction_status_slot = Arc::new(AtomicU64::default());
         let max_complete_rewards_slot = Arc::new(AtomicU64::default());
         let subscriptions = Arc::new(RpcSubscriptions::default_with_bank_forks(
@@ -1102,30 +987,30 @@ mod tests {
         ));
         let (rpc, _receiver) = rpc_pubsub_service::test_connection(&subscriptions);
 
-        io.extend_with(rpc.to_delegate());
+        let io = rpc.into_rpc();
 
         let req = format!(
             r#"{{"jsonrpc":"2.0","id":1,"method":"accountSubscribe","params":["{bob_pubkey}"]}}"#
         );
-        let _res = io.handle_request_sync(&req);
+        let _ = io.raw_json_request(&req, 1).await.unwrap();
 
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"accountUnsubscribe","params":[0]}"#;
-        let res = io.handle_request_sync(req);
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
 
         let expected = r#"{"jsonrpc":"2.0","result":true,"id":1}"#;
-        let expected: Response = serde_json::from_str(expected).unwrap();
+        let expected: Response<bool> = serde_json::from_str(expected).unwrap();
 
-        let result: Response = serde_json::from_str(&res.unwrap()).unwrap();
-        assert_eq!(result, expected);
+        let result: Response<bool> = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result.payload, expected.payload);
 
         // Test bad parameter
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"accountUnsubscribe","params":[1]}"#;
-        let res = io.handle_request_sync(req);
+        let (res, _) = io.raw_json_request(req, 1).await.unwrap();
         let expected = r#"{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid subscription id."},"id":1}"#;
-        let expected: Response = serde_json::from_str(expected).unwrap();
+        let expected: Response<()> = serde_json::from_str(expected).unwrap();
 
-        let result: Response = serde_json::from_str(&res.unwrap()).unwrap();
-        assert_eq!(result, expected);
+        let result: Response<()> = serde_json::from_str(&res.result).unwrap();
+        assert_eq!(result.payload, expected.payload);
     }
 
     #[test]
@@ -1243,22 +1128,22 @@ mod tests {
         };
         subscriptions.notify_subscribers(commitment_slots);
         let expected = json!({
-           "jsonrpc": "2.0",
-           "method": "accountNotification",
-           "params": {
-               "result": {
-                   "context": { "slot": 1 },
-                   "value": {
-                       "owner": system_program::id().to_string(),
-                       "lamports": 100,
-                       "data": "",
-                       "executable": false,
-                       "rentEpoch": u64::MAX,
-                       "space": 0,
-                   },
-               },
-               "subscription": 0,
-           }
+            "jsonrpc": "2.0",
+             "method": "accountNotification",
+             "params": {
+                 "result": {
+                     "context": { "slot": 1 },
+                     "value": {
+                         "owner": system_program::id().to_string(),
+                         "lamports": 100,
+                         "data": "",
+                         "executable": false,
+                         "rentEpoch": u64::MAX,
+                         "space": 0,
+                     },
+                 },
+                 "subscription": 0,
+             }
         });
         let response = receiver.recv();
         assert_eq!(
@@ -1286,17 +1171,21 @@ mod tests {
         rpc_subscriptions.notify_slot(0, 0, 0);
 
         // Test slot confirmation notification
-        let response = receiver.recv();
-        let expected_res = SlotInfo {
-            parent: 0,
-            slot: 0,
-            root: 0,
-        };
-        let expected_res_str = serde_json::to_string(&expected_res).unwrap();
+        let response: Value = serde_json::from_str(&receiver.recv()).unwrap();
 
-        let expected = format!(
-            r#"{{"jsonrpc":"2.0","method":"slotNotification","params":{{"result":{expected_res_str},"subscription":0}}}}"#
-        );
+        let expected = json! {{
+            "jsonrpc":"2.0",
+            "method":"slotNotification",
+            "params":{
+                "result": SlotInfo {
+                    parent: 0,
+                    slot: 0,
+                    root: 0,
+                },
+                "subscription": 0
+            }
+        }};
+
         assert_eq!(expected, response);
     }
 
@@ -1317,17 +1206,22 @@ mod tests {
         let sub_id = rpc.slot_subscribe().unwrap();
 
         rpc_subscriptions.notify_slot(0, 0, 0);
-        let response = receiver.recv();
-        let expected_res = SlotInfo {
-            parent: 0,
-            slot: 0,
-            root: 0,
-        };
-        let expected_res_str = serde_json::to_string(&expected_res).unwrap();
 
-        let expected = format!(
-            r#"{{"jsonrpc":"2.0","method":"slotNotification","params":{{"result":{expected_res_str},"subscription":0}}}}"#
-        );
+        let response: Value = serde_json::from_str(&receiver.recv()).unwrap();
+
+        let expected = json! {{
+            "jsonrpc": "2.0",
+            "method":"slotNotification",
+            "params": {
+                "result": {
+                    "parent": 0,
+                    "slot": 0,
+                    "root": 0,
+                },
+                "subscription": 0
+            }
+        }};
+
         assert_eq!(expected, response);
 
         assert!(rpc.slot_unsubscribe(42.into()).is_err());
@@ -1378,11 +1272,23 @@ mod tests {
             Signature::default(),
         );
 
-        let response = receiver.recv();
-        assert_eq!(
-            response,
-            r#"{"jsonrpc":"2.0","method":"voteNotification","params":{"result":{"votePubkey":"11111111111111111111111111111111","slots":[1,2],"hash":"11111111111111111111111111111111","timestamp":null,"signature":"1111111111111111111111111111111111111111111111111111111111111111"},"subscription":0}}"#
-        );
+        let response: Value = serde_json::from_str(&receiver.recv()).unwrap();
+        let expected = json! {{
+            "jsonrpc":"2.0",
+            "method":"voteNotification",
+            "params": {
+                "result": {
+                    "votePubkey":"11111111111111111111111111111111",
+                    "slots":[1,2],
+                    "hash":"11111111111111111111111111111111",
+                    "timestamp":null,
+                    "signature":"1111111111111111111111111111111111111111111111111111111111111111"
+                },
+                "subscription":0
+            }
+        }};
+
+        assert_eq!(response, expected);
     }
 
     #[test]
