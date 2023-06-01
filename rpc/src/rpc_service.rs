@@ -576,8 +576,9 @@ impl JsonRpcService {
                     //                .layer(request_middleware);
 
                     let server = ServerBuilder::default()
-                        //                        .custom_tokio_runtime(runtime.handle().clone())
+                        .http_only()
                         .set_middleware(middleware)
+                        .max_connections(u32::MAX)
                         .max_request_body_size(max_request_body_size)
                         .build(rpc_addr)
                         .await
@@ -611,7 +612,7 @@ impl JsonRpcService {
             .write()
             .unwrap()
             .register_exit(Box::new(move || {
-                close_handle_.close();
+                close_handle_.stop().unwrap();
             }));
 
         Ok(Self {

@@ -1227,7 +1227,7 @@ impl JsonRpcRequestProcessor {
         let mut blocks: Vec<_> = self
             .blockstore
             .rooted_slot_iterator(max(start_slot, lowest_blockstore_slot))
-            .map_err(|_| Error::internal_error())?
+            .map_err(|_| ErrorObject::from(ErrorCode::InternalError))?
             .filter(|&slot| slot <= end_slot && slot <= highest_super_majority_root)
             .collect();
         let last_element = blocks
@@ -2565,7 +2565,6 @@ pub mod rpc_minimal {
             options: Option<RpcLeaderScheduleConfigWrapper>,
             config: Option<RpcLeaderScheduleConfig>,
         ) -> std::result::Result<Option<RpcLeaderSchedule>, ErrorObject<'static>>;
-
     }
 
     pub struct MinimalImpl {
@@ -4340,7 +4339,7 @@ where
             }
             BASE64_STANDARD
                 .decode(encoded)
-                .map_err(|e| Error::invalid_params(format!("invalid base64 encoding: {e:?}")))?
+                .map_err(|e| invalid_params(format!("invalid b e64 encoding: {e:?}")))?
         }
     };
     if wire_output.len() > PACKET_DATA_SIZE {
@@ -4984,7 +4983,7 @@ pub mod tests {
             .build(URL.parse::<SocketAddr>().unwrap())
             .await
             .unwrap();
-        
+
         let addr = server.local_addr().unwrap();
 
         let rpc = MinimalImpl { meta }.into_rpc();

@@ -1,5 +1,7 @@
 //! The `pubsub` module implements a threaded subscription service on client RPC request
 
+use std::panic;
+
 use crate::rpc_pubsub::RpcSolPubSubInternalServer;
 
 use {
@@ -191,6 +193,8 @@ impl SentNotificationStats {
     }
 }
 
+/// This is per susbscription connection
+/// each connection can have multiple subscriptions
 struct BroadcastHandler {
     current_subscriptions: Arc<DashMap<SubscriptionId, SubscriptionToken>>,
     sent_stats: Arc<SentNotificationStats>,
@@ -360,10 +364,12 @@ async fn handle_connection(
 ) -> Result<(), Error> {
     let mut server = Server::new(socket.compat());
     let request = server.receive_request().await?;
+
     let accept = server::Response::Accept {
         key: request.key(),
         protocol: None,
     };
+
     server.send_response(&accept).await?;
     let (mut sender, mut receiver) = server.into_builder().finish();
 
@@ -409,6 +415,7 @@ async fn handle_connection(
                 }
             }
         }
+
         let data_str = match str::from_utf8(&data) {
             Ok(str) => str,
             Err(_) => {
@@ -417,11 +424,11 @@ async fn handle_connection(
                 break;
             }
         };
-        if let Ok((_, mut recv)) = rpc_impl.raw_json_request(data_str, 1).await {
-            if let Some(recv) = recv.recv().await {
-                sender.send_text(recv).await?;
-            }
+
+        if let Ok((recv, _)) = rpc_impl.raw_json_request(data_str, 1).await {
+            sender.send_text(&recv.result).await?;
         }
+
         data.clear();
     }
 
@@ -445,6 +452,7 @@ async fn listen(
                     let config = config.clone();
                     let tripwire = tripwire.clone();
                     let counter_token = counter.create_token();
+
                     tokio::spawn(async move {
                         let handle = handle_connection(
                             socket, subscription_control, config, tripwire
