@@ -57,6 +57,7 @@ hyper = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 futures-util = "0.3.28"
+jsonrpc-actix = { git = "https://github.com/aniketfuryrocks/jsonrpc-actix", version = "0.1.0" }
 
 [dev-dependencies]
 serial_test = { workspace = true }
