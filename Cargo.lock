@@ -2832,7 +2832,7 @@ dependencies = [
 [[package]]
 name = "jsonrpc-actix"
 version = "0.1.0"
-source = "git+https://github.com/aniketfuryrocks/jsonrpc-actix#5688d5bd6182c6d4ffadb36cb516d7ec8451999f"
+source = "git+https://github.com/aniketfuryrocks/jsonrpc-actix#3b861b00bbd3a02408025f16a5eb9a870735e184"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -6701,6 +6701,7 @@ dependencies = [
 name = "solana-rpc"
 version = "1.17.0"
 dependencies = [
+ "actix-web",
  "base64 0.21.2",
  "bincode",
  "bs58",

@@ -7,6 +7,7 @@ use jsonrpsee::{
     server::{ServerBuilder, ServerHandle},
     RpcModule,
 };
+use solana_rpc_client_api::config::RpcContextConfig;
 use tower_http::cors::MaxAge;
 
 use crate::request_middleware::{
@@ -72,7 +73,7 @@ pub struct JsonRpcService {
     #[cfg(test)]
     pub request_processor: JsonRpcRequestProcessor, // Used only by test_rpc_new()...
 
-    close_handle: Option<ServerHandle>,
+    close_handle: Option<()>,
 }
 
 struct RpcRequestMiddleware {
@@ -575,57 +576,108 @@ impl JsonRpcService {
                         .layer(request_middleware);
                     //                .layer(request_middleware);
 
-                    let server = ServerBuilder::default()
-                        .http_only()
-                        .set_middleware(middleware)
-                        .max_connections(u32::MAX)
-                        .max_request_body_size(max_request_body_size)
-                        .build(rpc_addr)
-                        .await
-                        .expect("Error building server")
-                        .start(module);
+                    //let server = ServerBuilder::default()
+                    //    .http_only()
+                    //    .set_middleware(middleware)
+                    //    .max_connections(u32::MAX)
+                    //    .max_request_body_size(max_request_body_size)
+                    //    .build(rpc_addr)
+                    //    .await
+                    //    .expect("Error building server")
+                    //    .start(module);
 
-                    if let Err(err) = server {
-                        warn!(
-                            "JSON RPC service unavailable error: {err:?}. \n\
-                           Also, check that port {} is not already in use by another application",
-                            rpc_addr.port()
-                        );
-                        close_handle_sender.send(Err(err.to_string())).unwrap();
-                        return;
+                    {
+                        use actix_web::{web, App, HttpServer};
+                        use jsonrpc_actix::{
+                            handle::rpc_handler,
+                            methods::{RpcModule, RpcOutput},
+                            types::response::RpcPayload,
+                        };
+                        use solana_rpc_client_api::response::RpcVersionInfo;
+
+                        async fn get_version(ctx: JsonRpcRequestProcessor) -> RpcOutput {
+                            debug!("get_version rpc request received");
+                            let version = solana_version::Version::default();
+
+                            Ok(RpcPayload::Result(
+                                serde_json::to_value(RpcVersionInfo {
+                                    solana_core: version.to_string(),
+                                    feature_set: Some(version.feature_set),
+                                })
+                                .unwrap(),
+                            ))
+                        }
+
+                        async fn get_slot(
+                            ctx: JsonRpcRequestProcessor,
+                            config: Option<RpcContextConfig>,
+                        ) -> RpcOutput {
+                            Ok(RpcPayload::Result(
+                                serde_json::to_value(
+                                    ctx.get_slot(config.unwrap_or_default()).expect("get Slot"),
+                                )
+                                .expect("serde"),
+                            ))
+                        }
+
+                        HttpServer::new(move || {
+                            let mut app_state = RpcModule::new(meta.clone());
+                            app_state.register("getSlot", get_slot);
+                            app_state.register("getVersion", get_version);
+
+                            App::new().app_data(web::Data::new(app_state)).service(
+                                web::resource("/")
+                                    .route(web::to(rpc_handler::<JsonRpcRequestProcessor>)),
+                            )
+                        })
+                        .bind(rpc_addr)
+                        .unwrap()
+                        .run()
+                        .await
+                        .unwrap();
                     }
 
-                    let server = server.unwrap();
+                    //if let Err(err) = server {
+                    //    warn!(
+                    //        "JSON RPC service unavailable error: {err:?}. \n\
+                    //       Also, check that port {} is not already in use by another application",
+                    //        rpc_addr.port()
+                    //    );
+                    //    close_handle_sender.send(Err(err.to_string())).unwrap();
+                    //    return;
+                    //}
 
-                    close_handle_sender.send(Ok(server.clone())).unwrap();
+                    //let server = server.unwrap();
 
-                    server.stopped().await;
+                    close_handle_sender.send(()).unwrap();
+
+                    //server.stopped().await;
                     exit_bigtable_ledger_upload_service.store(true, Ordering::Relaxed);
                 });
             })
             .unwrap();
 
-        let close_handle = close_handle_receiver.recv().unwrap()?;
-        let close_handle_ = close_handle.clone();
+        //let close_handle = close_handle_receiver.recv().unwrap()?;
+        //let close_handle_ = close_handle.clone();
 
         validator_exit
             .write()
             .unwrap()
             .register_exit(Box::new(move || {
-                close_handle_.stop().unwrap();
+                //close_handle_.stop().unwrap();
             }));
 
         Ok(Self {
             thread_hdl,
             #[cfg(test)]
             request_processor: test_request_processor,
-            close_handle: Some(close_handle),
+            close_handle: Some(()),
         })
     }
 
     pub fn exit(&mut self) {
         if let Some(c) = self.close_handle.take() {
-            c.stop().unwrap()
+            //c.stop().unwrap()
         }
     }
 
