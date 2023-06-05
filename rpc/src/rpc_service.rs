@@ -1,6 +1,6 @@
 //! The `rpc_service` module implements the Solana JSON RPC service.
 
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use futures_util::TryStreamExt;
 use jsonrpc_actix::types::error::{code::ErrorCode, object::ErrorObject};
@@ -8,14 +8,17 @@ use jsonrpsee::{
     server::{ServerBuilder, ServerHandle},
     RpcModule,
 };
-use solana_account_decoder::UiAccountEncoding;
+use solana_account_decoder::{parse_token::is_known_spl_token_id, UiAccountEncoding};
 use solana_rpc_client_api::{
     config::{
-        RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEncodingConfigWrapper,
-        RpcSendTransactionConfig, RpcSimulateTransactionConfig,
+        RpcAccountInfoConfig, RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig,
+        RpcEncodingConfigWrapper, RpcProgramAccountsConfig, RpcSendTransactionConfig,
+        RpcSimulateTransactionConfig,
     },
     custom_error::RpcCustomError,
-    response::{RpcBlockhash, RpcSimulateTransactionResult},
+    filter::RpcFilterType,
+    request::MAX_GET_PROGRAM_ACCOUNT_FILTERS,
+    response::{OptionalContext, RpcBlockhash, RpcKeyedAccount, RpcSimulateTransactionResult},
 };
 use solana_runtime::bank::TransactionSimulationResult;
 use solana_sdk::{
@@ -27,8 +30,9 @@ use solana_sdk::{
 use solana_transaction_status::{UiConfirmedBlock, UiTransactionEncoding};
 use tower_http::cors::MaxAge;
 
-use crate::request_middleware::{
-    RequestMiddleware, RequestMiddlewareAction, RequestMiddlewareLayer,
+use crate::{
+    parsed_token_accounts::get_parsed_token_accounts,
+    request_middleware::{RequestMiddleware, RequestMiddlewareAction, RequestMiddlewareLayer},
 };
 
 use {
@@ -529,80 +533,6 @@ impl JsonRpcService {
                 runtime.block_on(async move {
                     let meta = request_processor.clone();
 
-                    let mut module = RpcModule::new(());
-
-                    module
-                        .merge(MinimalImpl { meta: meta.clone() }.into_rpc())
-                        .unwrap();
-
-                    if full_api {
-                        module
-                            .merge(rpc_bank::BankDataImpl { meta: meta.clone() }.into_rpc())
-                            .unwrap();
-                        module
-                            .merge(rpc_accounts::AccountsDataImpl { meta: meta.clone() }.into_rpc())
-                            .unwrap();
-                        module
-                            .merge(
-                                rpc_accounts_scan::AccountsScanImpl { meta: meta.clone() }
-                                    .into_rpc(),
-                            )
-                            .unwrap();
-                        module
-                            .merge(rpc_full::FullImpl { meta: meta.clone() }.into_rpc())
-                            .unwrap();
-                        module
-                            .merge(
-                                rpc_deprecated_v1_7::DeprecatedV1_7Impl { meta: meta.clone() }
-                                    .into_rpc(),
-                            )
-                            .unwrap();
-                        module
-                            .merge(
-                                rpc_deprecated_v1_9::DeprecatedV1_9Impl { meta: meta.clone() }
-                                    .into_rpc(),
-                            )
-                            .unwrap();
-                    }
-
-                    if obsolete_v1_7_api {
-                        module
-                            .merge(
-                                rpc_obsolete_v1_7::ObsoleteV1_7Impl { meta: meta.clone() }
-                                    .into_rpc(),
-                            )
-                            .unwrap();
-                    }
-
-                    let request_middleware = RpcRequestMiddleware::new(
-                        ledger_path,
-                        snapshot_config,
-                        bank_forks.clone(),
-                        health.clone(),
-                    );
-                    let request_middleware = RequestMiddlewareLayer::new(request_middleware);
-
-                    let cors = tower_http::cors::CorsLayer::new()
-                        .allow_methods([hyper::Method::POST])
-                        .allow_origin(tower_http::cors::Any)
-                        .max_age(MaxAge::exact(Duration::from_secs(86400)))
-                        .allow_headers([hyper::header::CONTENT_TYPE]);
-
-                    let _middleware = tower::ServiceBuilder::new()
-                        .layer(cors)
-                        .layer(request_middleware);
-                    //                .layer(request_middleware);
-
-                    //let server = ServerBuilder::default()
-                    //    .http_only()
-                    //    .set_middleware(middleware)
-                    //    .max_connections(u32::MAX)
-                    //    .max_request_body_size(max_request_body_size)
-                    //    .build(rpc_addr)
-                    //    .await
-                    //    .expect("Error building server")
-                    //    .start(module);
-
                     {
                         use actix_web::{web, App, HttpServer};
                         use jsonrpc_actix::{
@@ -920,6 +850,51 @@ impl JsonRpcService {
                             ))
                         }
 
+                        async fn get_balance(
+                            ctx: JsonRpcRequestProcessor,
+                            pubkey: String,
+                            config: RpcContextConfig,
+                        ) -> RpcResult<RpcResponse<u64>> {
+                            let pubkey = Pubkey::from_str(&pubkey)?;
+                            let bank = ctx.get_bank_with_config(config)?;
+                            Ok(new_response(&bank, bank.get_balance(&pubkey)))
+                        }
+
+
+                        async fn get_program_accounts(
+                            ctx: JsonRpcRequestProcessor,
+                            program_id_str: String,
+                            config: Option<RpcProgramAccountsConfig>,
+                        ) -> RpcResult<OptionalContext<Vec<RpcKeyedAccount>>> {
+                            debug!(
+                                "get_program_accounts rpc request received: {:?}",
+                                program_id_str
+                            );
+                            let program_id = verify_pubkey(&program_id_str)?;
+                            let (config, filters, with_context) = if let Some(config) = config {
+                                (
+                                    Some(config.account_config),
+                                    config.filters.unwrap_or_default(),
+                                    config.with_context.unwrap_or_default(),
+                                )
+                            } else {
+                                (None, vec![], false)
+                            };
+                            if filters.len() > MAX_GET_PROGRAM_ACCOUNT_FILTERS {
+                                    return Err(ErrorObject::new(
+                                        ErrorCode::InvalidParams,
+                                        format!("Too many filters provided; max {MAX_GET_PROGRAM_ACCOUNT_FILTERS}")
+                                    )
+                                    .into());
+                            }
+                            for filter in &filters {
+                                verify_filter(filter)?;
+                            }
+
+                            Ok(ctx.get_program_accounts(&program_id, config, filters, with_context)?)
+                        }
+
+
                         HttpServer::new(move || {
                             let mut app_state = RpcModule::new(meta.clone());
                             app_state.register("getSlot", get_slot);
@@ -930,6 +905,8 @@ impl JsonRpcService {
                             app_state.register("getBlocks", get_blocks);
                             app_state.register("SendTransaction", send_transaction);
                             app_state.register("simulateTransaction", simulate_transaction);
+                            app_state.register("getBalance", get_balance);
+                            app_state.register("getProgramAccounts", get_program_accounts);
 
                             App::new().app_data(web::Data::new(app_state)).service(
                                 web::resource("/")

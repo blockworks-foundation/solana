@@ -2186,7 +2186,7 @@ impl JsonRpcRequestProcessor {
     }
 }
 
-fn optimize_filters(filters: &mut [RpcFilterType]) {
+pub fn optimize_filters(filters: &mut [RpcFilterType]) {
     filters.iter_mut().for_each(|filter_type| {
         if let RpcFilterType::Memcmp(compare) = filter_type {
             if let Err(err) = compare.convert_to_raw_bytes() {
@@ -2213,7 +2213,7 @@ pub fn verify_transaction(
     Ok(())
 }
 
-fn verify_filter(input: &RpcFilterType) -> Result<()> {
+pub fn verify_filter(input: &RpcFilterType) -> Result<()> {
     input
         .verify()
         .map_err(|e| invalid_params(format!("Invalid param: {e:?}")))
@@ -2330,7 +2330,7 @@ pub fn encode_account<T: ReadableAccount>(
 /// owner.
 /// NOTE: `optimize_filters()` should almost always be called before using this method because of
 /// the strict match on `MemcmpEncodedBytes::Bytes`.
-fn get_spl_token_owner_filter(program_id: &Pubkey, filters: &[RpcFilterType]) -> Option<Pubkey> {
+pub fn get_spl_token_owner_filter(program_id: &Pubkey, filters: &[RpcFilterType]) -> Option<Pubkey> {
     if !is_known_spl_token_id(program_id) {
         return None;
     }
@@ -2388,7 +2388,7 @@ fn get_spl_token_owner_filter(program_id: &Pubkey, filters: &[RpcFilterType]) ->
 /// mint.
 /// NOTE: `optimize_filters()` should almost always be called before using this method because of
 /// the strict match on `MemcmpEncodedBytes::Bytes`.
-fn get_spl_token_mint_filter(program_id: &Pubkey, filters: &[RpcFilterType]) -> Option<Pubkey> {
+pub fn get_spl_token_mint_filter(program_id: &Pubkey, filters: &[RpcFilterType]) -> Option<Pubkey> {
     if !is_known_spl_token_id(program_id) {
         return None;
     }
