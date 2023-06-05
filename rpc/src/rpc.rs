@@ -192,12 +192,12 @@ pub struct JsonRpcRequestProcessor {
     bank_forks: Arc<RwLock<BankForks>>,
     block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
     blockstore: Arc<Blockstore>,
-    config: Arc<JsonRpcConfig>,
+    pub config: Arc<JsonRpcConfig>,
     snapshot_config: Option<SnapshotConfig>,
     #[allow(dead_code)]
     validator_exit: Arc<RwLock<Exit>>,
     pub health: Arc<RpcHealth>,
-    cluster_info: Arc<ClusterInfo>,
+    pub cluster_info: Arc<ClusterInfo>,
     genesis_hash: Hash,
     transaction_sender: Arc<Mutex<Sender<TransactionInfo>>>,
     bigtable_ledger_storage: Arc<Option<solana_storage_bigtable::LedgerStorage>>,
@@ -756,12 +756,12 @@ impl JsonRpcRequestProcessor {
         self.max_slots.shred_insert.load(Ordering::Relaxed)
     }
 
-    fn get_slot_leader(&self, config: RpcContextConfig) -> Result<String> {
+    pub fn get_slot_leader(&self, config: RpcContextConfig) -> Result<String> {
         let bank = self.get_bank_with_config(config)?;
         Ok(bank.collector_id().to_string())
     }
 
-    fn get_slot_leaders(
+    pub fn get_slot_leaders(
         &self,
         commitment: Option<CommitmentConfig>,
         start_slot: Slot,
@@ -2153,7 +2153,7 @@ impl JsonRpcRequestProcessor {
         ))
     }
 
-    fn is_blockhash_valid(
+    pub fn is_blockhash_valid(
         &self,
         blockhash: &Hash,
         config: RpcContextConfig,
@@ -2231,7 +2231,7 @@ fn verify_hash(input: &str) -> Result<Hash> {
         .map_err(|e| invalid_params(format!("Invalid param: {e:?}")))
 }
 
-fn verify_signature(input: &str) -> Result<Signature> {
+pub fn verify_signature(input: &str) -> Result<Signature> {
     input
         .parse()
         .map_err(|e| invalid_params(format!("Invalid param: {e:?}")))

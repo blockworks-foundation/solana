@@ -8,26 +8,35 @@ use jsonrpsee::{
     server::{ServerBuilder, ServerHandle},
     RpcModule,
 };
-use solana_account_decoder::{parse_token::is_known_spl_token_id, UiAccountEncoding};
+use solana_account_decoder::{parse_token::is_known_spl_token_id, UiAccount, UiAccountEncoding};
+use solana_client::connection_cache::Protocol;
 use solana_rpc_client_api::{
     config::{
         RpcAccountInfoConfig, RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig,
         RpcEncodingConfigWrapper, RpcProgramAccountsConfig, RpcSendTransactionConfig,
-        RpcSimulateTransactionConfig,
+        RpcSignatureStatusConfig, RpcSimulateTransactionConfig,
     },
     custom_error::RpcCustomError,
     filter::RpcFilterType,
-    request::MAX_GET_PROGRAM_ACCOUNT_FILTERS,
-    response::{OptionalContext, RpcBlockhash, RpcKeyedAccount, RpcSimulateTransactionResult},
+    request::{MAX_GET_PROGRAM_ACCOUNT_FILTERS, MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS, MAX_GET_SLOT_LEADERS, MAX_MULTIPLE_ACCOUNTS},
+    response::{
+        OptionalContext, RpcBlockhash, RpcKeyedAccount, RpcSignatureConfirmation,
+        RpcSimulateTransactionResult, RpcContactInfo, RpcBlockhashFeeCalculator,
+    },
 };
 use solana_runtime::bank::TransactionSimulationResult;
 use solana_sdk::{
     clock::MAX_RECENT_BLOCKHASHES,
     commitment_config::CommitmentConfig,
+    message::{SanitizedMessage, SanitizedVersionedMessage, VersionedMessage},
+    signature::Signature,
     slot_history::Slot,
-    transaction::{TransactionError, VersionedTransaction},
+    system_instruction,
+    transaction::{self, TransactionError, VersionedTransaction}, epoch_info::EpochInfo, epoch_schedule::EpochSchedule,
 };
-use solana_transaction_status::{UiConfirmedBlock, UiTransactionEncoding};
+use solana_transaction_status::{
+    TransactionBinaryEncoding, TransactionStatus, UiConfirmedBlock, UiTransactionEncoding,
+};
 use tower_http::cors::MaxAge;
 
 use crate::{
@@ -895,6 +904,244 @@ impl JsonRpcService {
                         }
 
 
+                        async fn get_account_info(
+                            ctx: JsonRpcRequestProcessor,
+                            pubkey_str: String,
+                            config: Option<RpcAccountInfoConfig>,
+                        ) -> RpcResult<RpcResponse<Option<UiAccount>>> {
+                            debug!("get_account_info rpc request received: {:?}", pubkey_str);
+                            let pubkey = verify_pubkey(&pubkey_str)?;
+                            Ok(ctx.get_account_info(&pubkey, config)?)
+                        }
+
+                        async fn get_minimum_balance_for_rent_exemption(
+                            ctx: JsonRpcRequestProcessor,
+                            data_len: usize,
+                            commitment: Option<CommitmentConfig>,
+                        ) -> RpcResult<u64> {
+                            debug!(
+                                "get_minimum_balance_for_rent_exemption rpc request received: {:?}",
+                                data_len
+                            );
+                            if data_len as u64 > system_instruction::MAX_PERMITTED_DATA_LENGTH {
+                                return Err(ErrorCode::InvalidRequest.into());
+                            }
+                            Ok(
+                                ctx
+                                .get_minimum_balance_for_rent_exemption(data_len, commitment))
+                        }
+
+                        async fn get_fee_for_message(
+                            ctx: JsonRpcRequestProcessor,
+                            data: String,
+                            config: Option<RpcContextConfig>,
+                        ) -> RpcResult<RpcResponse<Option<u64>>> {
+                            debug!("get_fee_for_message rpc request received");
+                            let (_, message) = decode_and_deserialize::<VersionedMessage>(
+                                data,
+                                TransactionBinaryEncoding::Base64,
+                            )?;
+                            let bank = &*ctx.get_bank_with_config(config.unwrap_or_default())?;
+                            let sanitized_versioned_message = SanitizedVersionedMessage::try_from(message)
+                                .map_err(|err| invalid_params(format!("invalid transaction message: {err}")))?;
+                            let sanitized_message = SanitizedMessage::try_new(sanitized_versioned_message, bank)
+                                .map_err(|err| invalid_params(format!("invalid transaction message: {err}")))?;
+                            let fee = bank.get_fee_for_message(&sanitized_message);
+                            Ok(new_response(bank, fee))
+                        }
+
+
+                        async fn get_signature_status(
+                            ctx: JsonRpcRequestProcessor,
+                            signature_str: String,
+                            commitment: Option<CommitmentConfig>,
+                        ) -> RpcResult<Option<transaction::Result<()>>> {
+                            debug!(
+                                "get_signature_status rpc request received: {:?}",
+                                signature_str
+                            );
+                            let signature = verify_signature(&signature_str)?;
+                            Ok(ctx.get_signature_status(signature, commitment)?)
+                        }
+
+                        async fn get_signature_statuses(
+                            ctx: JsonRpcRequestProcessor,
+                            signature_strs: Vec<String>,
+                            config: Option<RpcSignatureStatusConfig>,
+                        ) -> RpcResult<RpcResponse<Vec<Option<TransactionStatus>>>> {
+                            debug!(
+                                "get_signature_statuses rpc request received: {:?}",
+                                signature_strs.len()
+                            );
+                            if signature_strs.len() > MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS {
+                                    return Err(ErrorObject::new(
+                                        ErrorCode::InvalidParams,
+                                        format!(
+                                    "Too many inputs provided; max {MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS}"
+                                )
+                                    )
+                                    .into());
+                            }
+                            let mut signatures: Vec<Signature> = vec![];
+                            for signature_str in signature_strs {
+                                let signature = verify_signature(&signature_str)?;
+                                signatures.push(signature);
+                            }
+
+                            Ok(ctx.get_signature_statuses(signatures, config).await?)
+                        }
+                    
+                        async fn is_blockhash_valid(
+                            ctx: JsonRpcRequestProcessor,
+                            blockhash: String,
+                            config: Option<RpcContextConfig>,
+                        ) -> RpcResult<RpcResponse<bool>> {
+                            let blockhash =
+                                Hash::from_str(&blockhash).map_err(|e| invalid_params(format!("{e:?}")))?;
+
+                            Ok(ctx
+                                .is_blockhash_valid(&blockhash, config.unwrap_or_default())?)
+                        }
+
+
+                        async fn get_epoch_info(ctx: JsonRpcRequestProcessor, config: Option<RpcContextConfig>) -> RpcResult<EpochInfo> {
+                            debug!("get_epoch_info rpc request received");
+                            let bank = ctx.get_bank_with_config(config.unwrap_or_default())?;
+                            Ok(bank.get_epoch_info())
+                        }
+
+
+        async fn get_epoch_schedule(ctx: JsonRpcRequestProcessor) -> RpcResult<EpochSchedule> {
+            debug!("get_epoch_schedule rpc request received");
+            Ok(ctx.get_epoch_schedule())
+        }
+
+        async fn get_slot_leader(ctx: JsonRpcRequestProcessor, config: Option<RpcContextConfig>) -> RpcResult<String> {
+            debug!("get_slot_leader rpc request received");
+            Ok(ctx.get_slot_leader(config.unwrap_or_default())?)
+        }
+
+        async fn get_slot_leaders(ctx: JsonRpcRequestProcessor, start_slot: Slot, limit: u64) -> RpcResult<Vec<String>> {
+            debug!(
+                "get_slot_leaders rpc request received (start: {} limit: {})",
+                start_slot, limit
+            );
+
+            let limit = limit as usize;
+            if limit > MAX_GET_SLOT_LEADERS {
+                                    return Err(ErrorObject::new(
+                                        ErrorCode::InvalidParams,
+                                        format!(
+                    "Invalid limit; max {MAX_GET_SLOT_LEADERS}"
+                                )
+                                    )
+                                    .into());
+            }
+
+            Ok(
+                ctx
+                .get_slot_leaders(None, start_slot, limit)?
+                .into_iter()
+                .map(|identity| identity.to_string())
+                .collect())
+        }
+
+
+
+        async fn get_cluster_nodes(ctx: JsonRpcRequestProcessor) -> RpcResult<Vec<RpcContactInfo>> {
+            debug!("get_cluster_nodes rpc request received");
+            let cluster_info = ctx.cluster_info;
+            let socket_addr_space = cluster_info.socket_addr_space();
+            let my_shred_version = cluster_info.my_shred_version();
+            Ok(cluster_info
+                .all_peers()
+                .iter()
+                .filter_map(|(contact_info, _)| {
+                    if my_shred_version == contact_info.shred_version()
+                        && contact_info
+                            .gossip()
+                            .map(|addr| socket_addr_space.check(&addr))
+                            .unwrap_or_default()
+                    {
+                        let (version, feature_set) = if let Some(version) =
+                            cluster_info.get_node_version(contact_info.pubkey())
+                        {
+                            (Some(version.to_string()), Some(version.feature_set))
+                        } else {
+                            (None, None)
+                        };
+                        Some(RpcContactInfo {
+                            pubkey: contact_info.pubkey().to_string(),
+                            gossip: contact_info.gossip().ok(),
+                            tpu: contact_info
+                                .tpu(Protocol::UDP)
+                                .ok()
+                                .filter(|addr| socket_addr_space.check(addr)),
+                            tpu_quic: contact_info
+                                .tpu(Protocol::QUIC)
+                                .ok()
+                                .filter(|addr| socket_addr_space.check(addr)),
+                            rpc: contact_info
+                                .rpc()
+                                .ok()
+                                .filter(|addr| socket_addr_space.check(addr)),
+                            pubsub: contact_info
+                                .rpc_pubsub()
+                                .ok()
+                                .filter(|addr| socket_addr_space.check(addr)),
+                            version,
+                            feature_set,
+                            shred_version: Some(my_shred_version),
+                        })
+                    } else {
+                        None // Exclude spy nodes
+                    }
+                })
+                .collect())
+        }
+
+
+        async fn get_recent_blockhash(
+            ctx: JsonRpcRequestProcessor,
+            commitment: Option<CommitmentConfig>,
+        ) -> RpcResult<RpcResponse<RpcBlockhashFeeCalculator>> {
+            debug!("get_recent_blockhash rpc request received");
+            Ok(ctx.get_recent_blockhash(commitment)?)
+        }
+
+
+        async fn get_multiple_accounts(
+            ctx: JsonRpcRequestProcessor,
+            pubkey_strs: Vec<String>,
+            config: Option<RpcAccountInfoConfig>,
+        ) -> RpcResult<RpcResponse<Vec<Option<UiAccount>>>> {
+            debug!(
+                "get_multiple_accounts rpc request received: {:?}",
+                pubkey_strs.len()
+            );
+
+            let max_multiple_accounts =ctx
+                .config
+                .max_multiple_accounts
+                .unwrap_or(MAX_MULTIPLE_ACCOUNTS);
+            if pubkey_strs.len() > max_multiple_accounts {
+                                    return Err(ErrorObject::new(
+                                        ErrorCode::InvalidParams,
+                                        format!(
+
+                    "Too many inputs provided; max {max_multiple_accounts}"
+                                )
+                                    )
+                                    .into());
+            }
+            let pubkeys = pubkey_strs
+                .into_iter()
+                .map(|pubkey_str| verify_pubkey(&pubkey_str))
+                .collect::<Result<Vec<_>>>()?;
+
+            Ok(ctx.get_multiple_accounts(pubkeys, config)?)
+        }
+
                         HttpServer::new(move || {
                             let mut app_state = RpcModule::new(meta.clone());
                             app_state.register("getSlot", get_slot);
@@ -903,16 +1150,36 @@ impl JsonRpcService {
                             app_state.register("getLatestBlockhash", get_latest_blockhash);
                             app_state.register("getBlock", get_block);
                             app_state.register("getBlocks", get_blocks);
-                            app_state.register("SendTransaction", send_transaction);
+                            app_state.register("sendTransaction", send_transaction);
                             app_state.register("simulateTransaction", simulate_transaction);
                             app_state.register("getBalance", get_balance);
                             app_state.register("getProgramAccounts", get_program_accounts);
+                            app_state.register("getFeeForMessage", get_fee_for_message);
+                            app_state.register("getMinimumBalanceForRentExemption", get_minimum_balance_for_rent_exemption);
+                            app_state.register("getAccountInfo", get_account_info);
+                            app_state.register("isBlockhashValid", is_blockhash_valid);
+                            app_state.register("getEpochInfo", get_epoch_info);
+
+                            app_state.register("getSignatureStatus", get_signature_status);
+                            app_state.register("getSignatureStatuses", get_signature_statuses);
+
+
+                            app_state.register("getEpochSchedule", get_signature_statuses);
+                            app_state.register("getSlotLeader", get_slot_leader);
+                            app_state.register("getSlotLeaders", get_slot_leaders);
+
+                            app_state.register("getClusterNodes", get_cluster_nodes);
+
+                            app_state.register("getRecentBlockhash", get_recent_blockhash);
+                            app_state.register("getMultipleAccounts", get_multiple_accounts);
+
 
                             App::new().app_data(web::Data::new(app_state)).service(
                                 web::resource("/")
                                     .route(web::to(rpc_handler::<JsonRpcRequestProcessor>)),
                             )
                         })
+                        .keep_alive(Duration::from_secs(100))
                         .bind(rpc_addr)
                         .unwrap()
                         .run()
