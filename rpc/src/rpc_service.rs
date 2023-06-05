@@ -3,11 +3,28 @@
 use std::time::Duration;
 
 use futures_util::TryStreamExt;
+use jsonrpc_actix::types::error::{code::ErrorCode, object::ErrorObject};
 use jsonrpsee::{
     server::{ServerBuilder, ServerHandle},
     RpcModule,
 };
-use solana_rpc_client_api::config::RpcContextConfig;
+use solana_account_decoder::UiAccountEncoding;
+use solana_rpc_client_api::{
+    config::{
+        RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEncodingConfigWrapper,
+        RpcSendTransactionConfig, RpcSimulateTransactionConfig,
+    },
+    custom_error::RpcCustomError,
+    response::{RpcBlockhash, RpcSimulateTransactionResult},
+};
+use solana_runtime::bank::TransactionSimulationResult;
+use solana_sdk::{
+    clock::MAX_RECENT_BLOCKHASHES,
+    commitment_config::CommitmentConfig,
+    slot_history::Slot,
+    transaction::{TransactionError, VersionedTransaction},
+};
+use solana_transaction_status::{UiConfirmedBlock, UiTransactionEncoding};
 use tower_http::cors::MaxAge;
 
 use crate::request_middleware::{
@@ -571,7 +588,7 @@ impl JsonRpcService {
                         .max_age(MaxAge::exact(Duration::from_secs(86400)))
                         .allow_headers([hyper::header::CONTENT_TYPE]);
 
-                    let middleware = tower::ServiceBuilder::new()
+                    let _middleware = tower::ServiceBuilder::new()
                         .layer(cors)
                         .layer(request_middleware);
                     //                .layer(request_middleware);
@@ -590,33 +607,316 @@ impl JsonRpcService {
                         use actix_web::{web, App, HttpServer};
                         use jsonrpc_actix::{
                             handle::rpc_handler,
-                            methods::{RpcModule, RpcOutput},
-                            types::response::RpcPayload,
+                            methods::{RpcModule, RpcResult},
                         };
-                        use solana_rpc_client_api::response::RpcVersionInfo;
+                        use solana_rpc_client_api::response::{
+                            Response as RpcResponse, RpcVersionInfo,
+                        };
 
-                        async fn get_version(ctx: JsonRpcRequestProcessor) -> RpcOutput {
+                        async fn get_version(
+                            _ctx: JsonRpcRequestProcessor,
+                        ) -> RpcResult<RpcVersionInfo> {
                             debug!("get_version rpc request received");
                             let version = solana_version::Version::default();
-
-                            Ok(RpcPayload::Result(
-                                serde_json::to_value(RpcVersionInfo {
-                                    solana_core: version.to_string(),
-                                    feature_set: Some(version.feature_set),
-                                })
-                                .unwrap(),
-                            ))
+                            Ok(RpcVersionInfo {
+                                solana_core: version.to_string(),
+                                feature_set: Some(version.feature_set),
+                            })
                         }
 
                         async fn get_slot(
                             ctx: JsonRpcRequestProcessor,
+                            config: RpcContextConfig,
+                        ) -> RpcResult<Slot> {
+                            let bank = ctx.get_bank_with_config(config)?;
+                            Ok(bank.slot())
+                        }
+
+                        async fn get_block_height(
+                            ctx: JsonRpcRequestProcessor,
+                            config: RpcContextConfig,
+                        ) -> RpcResult<u64> {
+                            let bank = ctx.get_bank_with_config(config)?;
+                            Ok(bank.block_height())
+                        }
+
+                        async fn get_latest_blockhash(
+                            ctx: JsonRpcRequestProcessor,
                             config: Option<RpcContextConfig>,
-                        ) -> RpcOutput {
-                            Ok(RpcPayload::Result(
-                                serde_json::to_value(
-                                    ctx.get_slot(config.unwrap_or_default()).expect("get Slot"),
+                        ) -> RpcResult<RpcResponse<RpcBlockhash>> {
+                            debug!("get_latest_blockhash rpc request received");
+                            Ok(ctx.get_latest_blockhash(config.unwrap_or_default())?)
+                        }
+
+                        async fn get_block(
+                            ctx: JsonRpcRequestProcessor,
+                            slot: Slot,
+                            config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
+                        ) -> RpcResult<Option<UiConfirmedBlock>> {
+                            debug!("get_block rpc request received: {:?}", slot);
+                            Ok(ctx.get_block(slot, config).await?)
+                        }
+
+                        async fn get_blocks(
+                            ctx: JsonRpcRequestProcessor,
+                            start_slot: Slot,
+                            config: Option<RpcBlocksConfigWrapper>,
+                            commitment: Option<CommitmentConfig>,
+                        ) -> RpcResult<Vec<Slot>> {
+                            let (end_slot, maybe_commitment) =
+                                config.map(|config| config.unzip()).unwrap_or_default();
+                            debug!(
+                                "get_blocks rpc request received: {}-{:?}",
+                                start_slot, end_slot
+                            );
+
+                            Ok(ctx
+                                .get_blocks(start_slot, end_slot, commitment.or(maybe_commitment))
+                                .await?)
+                        }
+
+                        async fn send_transaction(
+                            ctx: JsonRpcRequestProcessor,
+                            data: String,
+                            config: Option<RpcSendTransactionConfig>,
+                        ) -> RpcResult<String> {
+                            debug!("send_transaction rpc request received");
+                            let RpcSendTransactionConfig {
+                                skip_preflight,
+                                preflight_commitment,
+                                encoding,
+                                max_retries,
+                                min_context_slot,
+                            } = config.unwrap_or_default();
+                            let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
+                            let binary_encoding =
+                                tx_encoding.into_binary_encoding().ok_or_else(|| {
+                                    invalid_params(format!(
+                    "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
+                ))
+                                })?;
+                            let (wire_transaction, unsanitized_tx) = decode_and_deserialize::<
+                                VersionedTransaction,
+                            >(
+                                data, binary_encoding
+                            )?;
+
+                            let preflight_commitment = preflight_commitment
+                                .map(|commitment| CommitmentConfig { commitment });
+                            let preflight_bank = &*ctx.get_bank_with_config(RpcContextConfig {
+                                commitment: preflight_commitment,
+                                min_context_slot,
+                            })?;
+
+                            let transaction = sanitize_transaction(unsanitized_tx, preflight_bank)?;
+                            let signature = *transaction.signature();
+
+                            let mut last_valid_block_height = preflight_bank
+                                .get_blockhash_last_valid_block_height(
+                                    transaction.message().recent_blockhash(),
                                 )
-                                .expect("serde"),
+                                .unwrap_or(0);
+
+                            let durable_nonce_info = transaction
+                                .get_durable_nonce()
+                                .map(|&pubkey| (pubkey, *transaction.message().recent_blockhash()));
+                            if durable_nonce_info.is_some() {
+                                // While it uses a defined constant, this last_valid_block_height value is chosen arbitrarily.
+                                // It provides a fallback timeout for durable-nonce transaction retries in case of
+                                // malicious packing of the retry queue. Durable-nonce transactions are otherwise
+                                // retried until the nonce is advanced.
+                                last_valid_block_height =
+                                    preflight_bank.block_height() + MAX_RECENT_BLOCKHASHES as u64;
+                            }
+
+                            if !skip_preflight {
+                                verify_transaction(&transaction, &preflight_bank.feature_set)?;
+
+                                match ctx.health.check() {
+                                    RpcHealthStatus::Ok => (),
+                                    RpcHealthStatus::Unknown => {
+                                        inc_new_counter_info!("rpc-send-tx_health-unknown", 1);
+                                        return Err(RpcCustomError::NodeUnhealthy {
+                                            num_slots_behind: None,
+                                        }
+                                        .into());
+                                    }
+                                    RpcHealthStatus::Behind { num_slots } => {
+                                        inc_new_counter_info!("rpc-send-tx_health-behind", 1);
+                                        return Err(RpcCustomError::NodeUnhealthy {
+                                            num_slots_behind: Some(num_slots),
+                                        }
+                                        .into());
+                                    }
+                                }
+
+                                if let TransactionSimulationResult {
+                                    result: Err(err),
+                                    logs,
+                                    post_simulation_accounts: _,
+                                    units_consumed,
+                                    return_data,
+                                } = preflight_bank.simulate_transaction(transaction)
+                                {
+                                    match err {
+                                        TransactionError::BlockhashNotFound => {
+                                            inc_new_counter_info!(
+                                                "rpc-send-tx_err-blockhash-not-found",
+                                                1
+                                            );
+                                        }
+                                        _ => {
+                                            inc_new_counter_info!("rpc-send-tx_err-other", 1);
+                                        }
+                                    }
+                                    return Err(RpcCustomError::SendTransactionPreflightFailure {
+                                        message: format!("Transaction simulation failed: {err}"),
+                                        result: RpcSimulateTransactionResult {
+                                            err: Some(err),
+                                            logs: Some(logs),
+                                            accounts: None,
+                                            units_consumed: Some(units_consumed),
+                                            return_data: return_data
+                                                .map(|return_data| return_data.into()),
+                                        },
+                                    }
+                                    .into());
+                                }
+                            }
+
+                            Ok(_send_transaction(
+                                &ctx,
+                                signature,
+                                wire_transaction,
+                                last_valid_block_height,
+                                durable_nonce_info,
+                                max_retries,
+                            )?)
+                        }
+
+                        async fn simulate_transaction(
+                            ctx: JsonRpcRequestProcessor,
+                            data: String,
+                            config: Option<RpcSimulateTransactionConfig>,
+                        ) -> RpcResult<RpcResponse<RpcSimulateTransactionResult>>
+                        {
+                            debug!("simulate_transaction rpc request received");
+                            let RpcSimulateTransactionConfig {
+                                sig_verify,
+                                replace_recent_blockhash,
+                                commitment,
+                                encoding,
+                                accounts: config_accounts,
+                                min_context_slot,
+                            } = config.unwrap_or_default();
+                            let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
+                            let binary_encoding =
+                                tx_encoding.into_binary_encoding().ok_or_else(|| {
+                                    invalid_params(format!(
+                    "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
+                ))
+                                })?;
+                            let (_, mut unsanitized_tx) = decode_and_deserialize::<
+                                VersionedTransaction,
+                            >(
+                                data, binary_encoding
+                            )?;
+
+                            let bank = &*ctx.get_bank_with_config(RpcContextConfig {
+                                commitment,
+                                min_context_slot,
+                            })?;
+                            if replace_recent_blockhash {
+                                if sig_verify {
+                                    return Err(ErrorObject::new(
+                                        ErrorCode::InvalidParams,
+                                        "sigVerify may not be used with replaceRecentBlockhash"
+                                            .to_string(),
+                                    )
+                                    .into());
+                                }
+                                unsanitized_tx
+                                    .message
+                                    .set_recent_blockhash(bank.last_blockhash());
+                            }
+
+                            let transaction = sanitize_transaction(unsanitized_tx, bank)?;
+                            if sig_verify {
+                                verify_transaction(&transaction, &bank.feature_set)?;
+                            }
+                            let number_of_accounts = transaction.message().account_keys().len();
+
+                            let TransactionSimulationResult {
+                                result,
+                                logs,
+                                post_simulation_accounts,
+                                units_consumed,
+                                return_data,
+                            } = bank.simulate_transaction(transaction);
+
+                            let accounts = if let Some(config_accounts) = config_accounts {
+                                let accounts_encoding = config_accounts
+                                    .encoding
+                                    .unwrap_or(UiAccountEncoding::Base64);
+
+                                if accounts_encoding == UiAccountEncoding::Binary
+                                    || accounts_encoding == UiAccountEncoding::Base58
+                                {
+                                    return Err(ErrorObject::new(
+                                        ErrorCode::InvalidParams,
+                                        "base58 encoding not supported".to_string(),
+                                    )
+                                    .into());
+                                }
+
+                                if config_accounts.addresses.len() > number_of_accounts {
+                                    return Err(ErrorObject::new(
+                                        ErrorCode::InvalidParams,
+                                        format!(
+                                            "Too many accounts provided; max {number_of_accounts}"
+                                        ),
+                                    )
+                                    .into());
+                                }
+
+                                if result.is_err() {
+                                    Some(vec![None; config_accounts.addresses.len()])
+                                } else {
+                                    Some(
+                                        config_accounts
+                                            .addresses
+                                            .iter()
+                                            .map(|address_str| {
+                                                let address = verify_pubkey(address_str)?;
+                                                post_simulation_accounts
+                                                    .iter()
+                                                    .find(|(key, _account)| key == &address)
+                                                    .map(|(pubkey, account)| {
+                                                        encode_account(
+                                                            account,
+                                                            pubkey,
+                                                            accounts_encoding,
+                                                            None,
+                                                        )
+                                                    })
+                                                    .transpose()
+                                            })
+                                            .collect::<Result<Vec<_>>>()?,
+                                    )
+                                }
+                            } else {
+                                None
+                            };
+
+                            Ok(new_response(
+                                bank,
+                                RpcSimulateTransactionResult {
+                                    err: result.err(),
+                                    logs: Some(logs),
+                                    accounts,
+                                    units_consumed: Some(units_consumed),
+                                    return_data: return_data.map(|return_data| return_data.into()),
+                                },
                             ))
                         }
 
@@ -624,6 +924,12 @@ impl JsonRpcService {
                             let mut app_state = RpcModule::new(meta.clone());
                             app_state.register("getSlot", get_slot);
                             app_state.register("getVersion", get_version);
+                            app_state.register("getBlockHeight", get_block_height);
+                            app_state.register("getLatestBlockhash", get_latest_blockhash);
+                            app_state.register("getBlock", get_block);
+                            app_state.register("getBlocks", get_blocks);
+                            app_state.register("SendTransaction", send_transaction);
+                            app_state.register("simulateTransaction", simulate_transaction);
 
                             App::new().app_data(web::Data::new(app_state)).service(
                                 web::resource("/")

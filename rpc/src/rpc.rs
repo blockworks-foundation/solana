@@ -123,7 +123,7 @@ pub fn invalid_params(err: impl Into<String>) -> ErrorObjectOwned {
     ErrorObject::owned(ErrorCode::InvalidParams.code(), err, None::<()>)
 }
 
-fn new_response<T>(bank: &Bank, value: T) -> RpcResponse<T> {
+pub fn new_response<T>(bank: &Bank, value: T) -> RpcResponse<T> {
     RpcResponse {
         context: RpcResponseContext::new(bank.slot()),
         value,
@@ -196,7 +196,7 @@ pub struct JsonRpcRequestProcessor {
     snapshot_config: Option<SnapshotConfig>,
     #[allow(dead_code)]
     validator_exit: Arc<RwLock<Exit>>,
-    health: Arc<RpcHealth>,
+    pub health: Arc<RpcHealth>,
     cluster_info: Arc<ClusterInfo>,
     genesis_hash: Hash,
     transaction_sender: Arc<Mutex<Sender<TransactionInfo>>>,
@@ -211,7 +211,7 @@ pub struct JsonRpcRequestProcessor {
 }
 
 impl JsonRpcRequestProcessor {
-    fn get_bank_with_config(&self, config: RpcContextConfig) -> Result<Arc<Bank>> {
+    pub fn get_bank_with_config(&self, config: RpcContextConfig) -> Result<Arc<Bank>> {
         let RpcContextConfig {
             commitment,
             min_context_slot,
@@ -229,7 +229,7 @@ impl JsonRpcRequestProcessor {
     }
 
     #[allow(deprecated)]
-    fn bank(&self, commitment: Option<CommitmentConfig>) -> Arc<Bank> {
+    pub fn bank(&self, commitment: Option<CommitmentConfig>) -> Arc<Bank> {
         debug!("RPC commitment_config: {:?}", commitment);
 
         let commitment = commitment.unwrap_or_default();
@@ -291,7 +291,7 @@ impl JsonRpcRequestProcessor {
         })
     }
 
-    fn genesis_creation_time(&self) -> UnixTimestamp {
+    pub fn genesis_creation_time(&self) -> UnixTimestamp {
         self.bank(None).genesis_creation_time()
     }
 
@@ -646,7 +646,7 @@ impl JsonRpcRequestProcessor {
         Ok(new_response(&bank, bank.get_balance(pubkey)))
     }
 
-    fn get_recent_blockhash(
+    pub fn get_recent_blockhash(
         &self,
         commitment: Option<CommitmentConfig>,
     ) -> Result<RpcResponse<RpcBlockhashFeeCalculator>> {
@@ -664,7 +664,7 @@ impl JsonRpcRequestProcessor {
         ))
     }
 
-    fn get_fees(&self, commitment: Option<CommitmentConfig>) -> Result<RpcResponse<RpcFees>> {
+    pub fn get_fees(&self, commitment: Option<CommitmentConfig>) -> Result<RpcResponse<RpcFees>> {
         let bank = self.bank(commitment);
         let blockhash = bank.confirmed_last_blockhash();
         let lamports_per_signature = bank
@@ -688,7 +688,7 @@ impl JsonRpcRequestProcessor {
         ))
     }
 
-    fn get_fee_calculator_for_blockhash(
+    pub fn get_fee_calculator_for_blockhash(
         &self,
         blockhash: &Hash,
         commitment: Option<CommitmentConfig>,
@@ -703,7 +703,7 @@ impl JsonRpcRequestProcessor {
         ))
     }
 
-    fn get_fee_rate_governor(&self) -> RpcResponse<RpcFeeRateGovernor> {
+    pub fn get_fee_rate_governor(&self) -> RpcResponse<RpcFeeRateGovernor> {
         let bank = self.bank(None);
         #[allow(deprecated)]
         let fee_rate_governor = bank.get_fee_rate_governor();
@@ -728,7 +728,7 @@ impl JsonRpcRequestProcessor {
         }
     }
 
-    fn get_block_commitment(&self, block: Slot) -> RpcBlockCommitment<BlockCommitmentArray> {
+    pub fn get_block_commitment(&self, block: Slot) -> RpcBlockCommitment<BlockCommitmentArray> {
         let r_block_commitment = self.block_commitment_cache.read().unwrap();
         RpcBlockCommitment {
             commitment: r_block_commitment
@@ -2138,7 +2138,7 @@ impl JsonRpcRequestProcessor {
         }
     }
 
-    fn get_latest_blockhash(&self, config: RpcContextConfig) -> Result<RpcResponse<RpcBlockhash>> {
+    pub fn get_latest_blockhash(&self, config: RpcContextConfig) -> Result<RpcResponse<RpcBlockhash>> {
         let bank = self.get_bank_with_config(config)?;
         let blockhash = bank.last_blockhash();
         let last_valid_block_height = bank
@@ -2197,7 +2197,7 @@ fn optimize_filters(filters: &mut [RpcFilterType]) {
     })
 }
 
-fn verify_transaction(
+pub fn verify_transaction(
     transaction: &SanitizedTransaction,
     feature_set: &Arc<feature_set::FeatureSet>,
 ) -> Result<()> {
@@ -2303,7 +2303,7 @@ fn get_encoded_account(
     }
 }
 
-fn encode_account<T: ReadableAccount>(
+pub fn encode_account<T: ReadableAccount>(
     account: &T,
     pubkey: &Pubkey,
     encoding: UiAccountEncoding,
@@ -2470,7 +2470,7 @@ fn get_token_program_id_and_mint(
     }
 }
 
-fn _send_transaction(
+pub fn _send_transaction(
     meta: &JsonRpcRequestProcessor,
     signature: Signature,
     wire_transaction: Vec<u8>,
@@ -4303,7 +4303,7 @@ pub mod rpc_obsolete_v1_7 {
 
 const MAX_BASE58_SIZE: usize = 1683; // Golden, bump if PACKET_DATA_SIZE changes
 const MAX_BASE64_SIZE: usize = 1644; // Golden, bump if PACKET_DATA_SIZE changes
-fn decode_and_deserialize<T>(
+pub fn decode_and_deserialize<T>(
     encoded: String,
     encoding: TransactionBinaryEncoding,
 ) -> Result<(Vec<u8>, T)>
@@ -4365,7 +4365,7 @@ where
         .map(|output| (wire_output, output))
 }
 
-fn sanitize_transaction(
+pub fn sanitize_transaction(
     transaction: VersionedTransaction,
     address_loader: impl AddressLoader,
 ) -> Result<SanitizedTransaction> {

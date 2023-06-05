@@ -2832,7 +2832,7 @@ dependencies = [
 [[package]]
 name = "jsonrpc-actix"
 version = "0.1.0"
-source = "git+https://github.com/aniketfuryrocks/jsonrpc-actix#3b861b00bbd3a02408025f16a5eb9a870735e184"
+source = "git+https://github.com/aniketfuryrocks/jsonrpc-actix#ce73d477120f051d37e61b133a141b8e6f823e18"
 dependencies = [
  "actix-web",
  "anyhow",
