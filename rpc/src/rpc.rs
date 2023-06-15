@@ -2225,7 +2225,7 @@ pub fn verify_pubkey(input: &str) -> Result<Pubkey> {
         .map_err(|e| invalid_params(format!("Invalid param: {e:?}")))
 }
 
-fn verify_hash(input: &str) -> Result<Hash> {
+pub fn verify_hash(input: &str) -> Result<Hash> {
     input
         .parse()
         .map_err(|e| invalid_params(format!("Invalid param: {e:?}")))

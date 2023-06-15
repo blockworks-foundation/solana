@@ -10,11 +10,12 @@ use jsonrpsee::{
 };
 use solana_account_decoder::{parse_token::is_known_spl_token_id, UiAccount, UiAccountEncoding};
 use solana_client::connection_cache::Protocol;
+use solana_faucet::faucet::request_airdrop_transaction;
 use solana_rpc_client_api::{
     config::{
         RpcAccountInfoConfig, RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig,
         RpcEncodingConfigWrapper, RpcProgramAccountsConfig, RpcSendTransactionConfig,
-        RpcSignatureStatusConfig, RpcSimulateTransactionConfig,
+        RpcSignatureStatusConfig, RpcSimulateTransactionConfig, RpcRequestAirdropConfig,
     },
     custom_error::RpcCustomError,
     filter::RpcFilterType,
@@ -1142,6 +1143,69 @@ impl JsonRpcService {
             Ok(ctx.get_multiple_accounts(pubkeys, config)?)
         }
 
+        async fn request_airdrop(
+            ctx: JsonRpcRequestProcessor,
+            pubkey_str: String,
+            lamports: u64,
+            config: Option<RpcRequestAirdropConfig>,
+        ) -> RpcResult<String> {
+            debug!("request_airdrop rpc request received");
+            trace!(
+                "request_airdrop id={} lamports={} config: {:?}",
+                pubkey_str,
+                lamports,
+                &config
+            );
+
+            let faucet_addr =
+                ctx
+                .config
+                .faucet_addr
+                .ok_or_else(|| ErrorObject::from(ErrorCode::InvalidRequest))?;
+
+            let pubkey = verify_pubkey(&pubkey_str)?;
+
+            let config = config.unwrap_or_default();
+            let bank = ctx.bank(config.commitment);
+
+            let blockhash = if let Some(blockhash) = config.recent_blockhash {
+                verify_hash(&blockhash)?
+            } else {
+                bank.confirmed_last_blockhash()
+            };
+            let last_valid_block_height = bank
+                .get_blockhash_last_valid_block_height(&blockhash)
+                .unwrap_or(0);
+
+            let transaction =
+                request_airdrop_transaction(&faucet_addr, &pubkey, lamports, blockhash).map_err(
+                    |err| {
+                        info!("request_airdrop_transaction failed: {:?}", err);
+                        ErrorCode::InternalError
+                    },
+                )?;
+
+            let wire_transaction = bincode::serialize(&transaction).map_err(|err| {
+                info!("request_airdrop: serialize error: {:?}", err);
+                ErrorCode::InternalError
+            })?;
+
+            let signature = if !transaction.signatures.is_empty() {
+                transaction.signatures[0]
+            } else {
+                return Err(RpcCustomError::TransactionSignatureVerificationFailure.into());
+            };
+
+            Ok(_send_transaction(
+                &ctx,
+                signature,
+                wire_transaction,
+                last_valid_block_height,
+                None,
+                None,
+            )?)
+        }
+
                         HttpServer::new(move || {
                             let mut app_state = RpcModule::new(meta.clone());
                             app_state.register("getSlot", get_slot);
@@ -1151,6 +1215,7 @@ impl JsonRpcService {
                             app_state.register("getBlock", get_block);
                             app_state.register("getBlocks", get_blocks);
                             app_state.register("sendTransaction", send_transaction);
+                            app_state.register("requestAirdrop", request_airdrop);
                             app_state.register("simulateTransaction", simulate_transaction);
                             app_state.register("getBalance", get_balance);
                             app_state.register("getProgramAccounts", get_program_accounts);
@@ -1159,6 +1224,7 @@ impl JsonRpcService {
                             app_state.register("getAccountInfo", get_account_info);
                             app_state.register("isBlockhashValid", is_blockhash_valid);
                             app_state.register("getEpochInfo", get_epoch_info);
+                            app_state.register("getEpochSchedule", get_epoch_schedule);
 
                             app_state.register("getSignatureStatus", get_signature_status);
                             app_state.register("getSignatureStatuses", get_signature_statuses);
