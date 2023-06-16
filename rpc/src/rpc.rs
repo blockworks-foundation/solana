@@ -743,7 +743,7 @@ impl JsonRpcRequestProcessor {
         Ok(bank.slot())
     }
 
-    fn get_block_height(&self, config: RpcContextConfig) -> Result<u64> {
+    pub fn get_block_height(&self, config: RpcContextConfig) -> Result<u64> {
         let bank = self.get_bank_with_config(config)?;
         Ok(bank.block_height())
     }

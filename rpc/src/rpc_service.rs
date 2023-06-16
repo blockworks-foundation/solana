@@ -566,18 +566,18 @@ impl JsonRpcService {
 
                         async fn get_slot(
                             ctx: JsonRpcRequestProcessor,
-                            config: RpcContextConfig,
+                            config: Option<RpcContextConfig>,
                         ) -> RpcResult<Slot> {
-                            let bank = ctx.get_bank_with_config(config)?;
-                            Ok(bank.slot())
+                            debug!("get_slot rpc request received");
+                            Ok(ctx.get_slot(config.unwrap_or_default())?)
                         }
 
                         async fn get_block_height(
                             ctx: JsonRpcRequestProcessor,
-                            config: RpcContextConfig,
+                            config: Option<RpcContextConfig>,
                         ) -> RpcResult<u64> {
-                            let bank = ctx.get_bank_with_config(config)?;
-                            Ok(bank.block_height())
+                            debug!("get_block_height rpc request received");
+                            Ok(ctx.get_block_height(config.unwrap_or_default())?)
                         }
 
                         async fn get_latest_blockhash(
