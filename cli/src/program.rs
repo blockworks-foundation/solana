@@ -839,6 +839,7 @@ fn process_program_deploy(
     skip_fee_check: bool,
 ) -> ProcessResult {
     let (words, mnemonic, buffer_keypair) = create_ephemeral_keypair()?;
+    report_ephemeral_mnemonic(words, mnemonic.clone());
     let (buffer_provided, buffer_signer, buffer_pubkey) = if let Some(i) = buffer_signer_index {
         (true, Some(config.signers[i]), config.signers[i].pubkey())
     } else if let Some(pubkey) = buffer_pubkey {
@@ -1841,13 +1842,13 @@ fn do_process_program_write_and_deploy(
                     programdata_len,
                 )?,
                 Some(&config.signers[0].pubkey()),
-                &blockhash,
+                &blockhash
             )
         } else {
             Message::new_with_blockhash(
                 &[loader_instruction::finalize(buffer_pubkey, loader_id)],
                 Some(&config.signers[0].pubkey()),
-                &blockhash,
+                &blockhash
             )
         };
         Some(message)
@@ -2140,7 +2141,8 @@ fn send_deploy_messages(
         if let Some(initial_signer) = initial_signer {
             trace!("Preparing the required accounts");
             let blockhash = rpc_client.get_latest_blockhash()?;
-
+            let mut message = message.clone();
+            message.recent_blockhash = blockhash;
             let mut initial_transaction = Transaction::new_unsigned(message.clone());
             // Most of the initial_transaction combinations require both the fee-payer and new program
             // account to sign the transaction. One (transfer) only requires the fee-payer signature.
@@ -2209,8 +2211,9 @@ fn send_deploy_messages(
         if let Some(final_signers) = final_signers {
             trace!("Deploying program");
             let blockhash = rpc_client.get_latest_blockhash()?;
-
-            let mut final_tx = Transaction::new_unsigned(message.clone());
+            let mut message = message.clone();
+            message.recent_blockhash = blockhash;
+            let mut final_tx = Transaction::new_unsigned(message);
             let mut signers = final_signers.to_vec();
             signers.push(payer_signer);
             final_tx.try_sign(&signers, blockhash)?;

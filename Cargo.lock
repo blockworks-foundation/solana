@@ -6901,6 +6901,7 @@ version = "1.17.0"
 dependencies = [
  "async-trait",
  "bincode",
+ "futures 0.3.28",
  "futures-util",
  "indexmap",
  "indicatif",

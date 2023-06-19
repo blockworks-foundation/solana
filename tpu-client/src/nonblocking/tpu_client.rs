@@ -44,7 +44,6 @@ use {
 };
 #[cfg(feature = "spinner")]
 use {
-    crate::tpu_client::{SEND_TRANSACTION_INTERVAL, TRANSACTION_RESEND_INTERVAL},
     indicatif::ProgressBar,
     solana_rpc_client::spinner,
     solana_rpc_client_api::request::MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS,
@@ -453,6 +452,8 @@ where
         messages: &[Message],
         signers: &T,
     ) -> Result<Vec<Option<TransactionError>>> {
+        use tokio::sync::{RwLock};
+
         let progress_bar = spinner::new_progress_bar();
         progress_bar.set_message("Setting up...");
 
@@ -465,59 +466,80 @@ where
         let mut transaction_errors = vec![None; transactions.len()];
         let mut confirmed_transactions = 0;
         let mut block_height = self.rpc_client.get_block_height().await?;
-        for expired_blockhash_retries in (0..5).rev() {
-            let (blockhash, last_valid_block_height) = self
+
+        let (blockhash_temp, lvbh) = self
                 .rpc_client
                 .get_latest_blockhash_with_commitment(self.rpc_client.commitment())
                 .await?;
 
+        let blockhash_r = Arc::new(RwLock::new((blockhash_temp, lvbh)));
+        let exit_signal = Arc::new(AtomicBool::new(false));
+
+        let blockhash_jh = {
+            let exit_signal = exit_signal.clone();
+            let blockhash_r = blockhash_r.clone();
+            let rpc_client = self.rpc_client.clone();
+            tokio::spawn(async move {
+                while !exit_signal.load(Ordering::Relaxed) {
+                    if let Ok((blockhash, last_valid_block_height)) = rpc_client
+                    .get_latest_blockhash_with_commitment(rpc_client.commitment())
+                    .await {
+                        *blockhash_r.write().await = (blockhash, last_valid_block_height);
+                    }
+                }
+            })
+        };
+
+        for expired_blockhash_retries in (0..100).rev() {
+            let mut last_valid_block_height = 0;
             let mut pending_transactions = HashMap::new();
-            for (i, mut transaction) in transactions {
-                transaction.try_sign(signers, blockhash)?;
-                pending_transactions.insert(transaction.signatures[0], (i, transaction));
+            let num_transactions = transactions.len();
+
+            for transactions in transactions.chunks(128) {
+                let mut futs = vec![];
+                let (blockhash, lvbh) = *blockhash_r.read().await;
+                last_valid_block_height = lvbh;
+                for (i, transaction) in transactions {
+                    let mut transaction = transaction.clone();
+                    transaction.try_sign(signers, blockhash)?;
+
+                    //if self.send_transaction(&transaction).await 
+                    {
+                        let rpc_client = self.rpc_client.clone();
+                        let transaction = transaction.clone();
+                        let send_futures = tokio::spawn(async move {
+                                let _result = rpc_client.send_transaction(&transaction).await;
+                        });
+
+                        futs.push(send_futures);
+                    }
+
+                    pending_transactions.insert(transaction.signatures[0], (*i, transaction));
+
+                    set_message_for_confirmed_transactions(
+                        &progress_bar,
+                        confirmed_transactions,
+                        total_transactions,
+                        None, //block_height,
+                        last_valid_block_height,
+                        &format!("Sending {}/{} transactions", i + 1, num_transactions,),
+                    );
+                }
+                join_all(futs).await;
             }
 
-            let mut last_resend = Instant::now() - TRANSACTION_RESEND_INTERVAL;
-            while block_height <= last_valid_block_height {
-                let num_transactions = pending_transactions.len();
 
-                // Periodically re-send all pending transactions
-                if Instant::now().duration_since(last_resend) > TRANSACTION_RESEND_INTERVAL {
-                    for (index, (_i, transaction)) in pending_transactions.values().enumerate() {
-                        if !self.send_transaction(transaction).await {
-                            let _result = self.rpc_client.send_transaction(transaction).await.ok();
-                        }
-                        set_message_for_confirmed_transactions(
-                            &progress_bar,
-                            confirmed_transactions,
-                            total_transactions,
-                            None, //block_height,
-                            last_valid_block_height,
-                            &format!("Sending {}/{} transactions", index + 1, num_transactions,),
-                        );
-                        sleep(SEND_TRANSACTION_INTERVAL).await;
-                    }
-                    last_resend = Instant::now();
-                }
-
-                // Wait for the next block before checking for transaction statuses
+            block_height = self.rpc_client.get_block_height().await?;
+            while block_height < last_valid_block_height {
+                let mut new_blockheight = self.rpc_client.get_block_height().await?;
                 let mut block_height_refreshes = 10;
-                set_message_for_confirmed_transactions(
-                    &progress_bar,
-                    confirmed_transactions,
-                    total_transactions,
-                    Some(block_height),
-                    last_valid_block_height,
-                    &format!("Waiting for next block, {num_transactions} transactions pending..."),
-                );
-                let mut new_block_height = block_height;
-                while block_height == new_block_height && block_height_refreshes > 0 {
+                if block_height == new_blockheight && block_height_refreshes > 0 {
                     sleep(Duration::from_millis(500)).await;
-                    new_block_height = self.rpc_client.get_block_height().await?;
+                    new_blockheight = self.rpc_client.get_block_height().await?;
                     block_height_refreshes -= 1;
                 }
-                block_height = new_block_height;
-
+                block_height = new_blockheight;
+                
                 // Collect statuses for the transactions, drop those that are confirmed
                 let pending_signatures = pending_transactions.keys().cloned().collect::<Vec<_>>();
                 for pending_signatures_chunk in
@@ -555,17 +577,22 @@ where
                         "Checking transaction status...",
                     );
                 }
+            }
 
-                if pending_transactions.is_empty() {
-                    return Ok(transaction_errors);
-                }
+            if pending_transactions.is_empty() {
+                exit_signal.store(true, Ordering::Relaxed);
+                let _ = blockhash_jh.await;
+                return Ok(transaction_errors);
             }
 
             transactions = pending_transactions.into_values().collect();
             progress_bar.println(format!(
                 "Blockhash expired. {expired_blockhash_retries} retries remaining"
             ));
+
         }
+        exit_signal.store(true, Ordering::Relaxed);
+        let _ = blockhash_jh.await.unwrap();
         Err(TpuSenderError::Custom("Max retries exceeded".into()))
     }
 

@@ -27,6 +27,7 @@ solana-rpc-client-api = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+futures = { workspace = true }
 
 [dev-dependencies]
 rand_chacha = { workspace = true }
