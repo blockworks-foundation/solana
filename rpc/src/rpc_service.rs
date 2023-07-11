@@ -862,14 +862,13 @@ impl JsonRpcService {
 
                         async fn get_balance(
                             ctx: JsonRpcRequestProcessor,
-                            pubkey: String,
-                            config: RpcContextConfig,
+                            pubkey_str: String,
+                            config: Option<RpcContextConfig>,
                         ) -> RpcResult<RpcResponse<u64>> {
-                            let pubkey = Pubkey::from_str(&pubkey)?;
-                            let bank = ctx.get_bank_with_config(config)?;
-                            Ok(new_response(&bank, bank.get_balance(&pubkey)))
+                            info!("get_balance rpc request received: {:?}", pubkey_str);
+                            let pubkey = verify_pubkey(&pubkey_str)?;
+                            Ok(ctx.get_balance(&pubkey, config.unwrap_or_default())?)
                         }
-
 
                         async fn get_program_accounts(
                             ctx: JsonRpcRequestProcessor,
