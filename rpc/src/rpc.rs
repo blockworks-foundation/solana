@@ -2502,7 +2502,7 @@ pub mod rpc_minimal {
     #[rpc(server, client)]
     pub trait Minimal {
         #[method(name = "getBalance")]
-        fn get_balance(
+        async fn get_balance(
             &self,
             pubkey_str: String,
             config: Option<RpcContextConfig>,
@@ -2571,8 +2571,11 @@ pub mod rpc_minimal {
         pub meta: JsonRpcRequestProcessor,
     }
 
+    use async_trait::async_trait;
+
+    #[async_trait]
     impl MinimalServer for MinimalImpl {
-        fn get_balance(
+        async fn get_balance(
             &self,
             pubkey_str: String,
             config: Option<RpcContextConfig>,
