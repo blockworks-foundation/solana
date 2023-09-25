@@ -166,7 +166,7 @@ use {
         sysvar::{self, last_restart_slot::LastRestartSlot, Sysvar, SysvarId},
         timing::years_as_slots,
         transaction::{
-            self, MessageHash, Result, SanitizedTransaction, Transaction, TransactionError,
+            self, MessageHash, Result, SanitizedTransaction, Transaction, TransactionError, TransactionResultNotifierLock,
             TransactionVerificationMode, VersionedTransaction, MAX_TX_ACCOUNT_LOCKS,
         },
         transaction_context::{
@@ -565,6 +565,7 @@ impl PartialEq for Bank {
             loaded_programs_cache: _,
             check_program_modification_slot: _,
             epoch_reward_status: _,
+            transaction_result_notifier_lock: _,
             // Ignore new fields explicitly if they do not impact PartialEq.
             // Adding ".." will remove compile-time checks that if a new field
             // is added to the struct, this PartialEq is accordingly updated.
@@ -823,6 +824,9 @@ pub struct Bank {
     pub check_program_modification_slot: bool,
 
     epoch_reward_status: EpochRewardStatus,
+
+    /// geyser plugin to notify transaction results
+    transaction_result_notifier_lock: Option<TransactionResultNotifierLock>,
 }
 
 struct VoteWithStakeDelegations {
@@ -1067,6 +1071,7 @@ impl Bank {
             loaded_programs_cache: Arc::<RwLock<LoadedPrograms>>::default(),
             check_program_modification_slot: false,
             epoch_reward_status: EpochRewardStatus::default(),
+            transaction_result_notifier_lock: None,
         };
 
         let accounts_data_size_initial = bank.get_total_accounts_stats().unwrap().data_len as u64;
@@ -1172,13 +1177,15 @@ impl Bank {
     }
 
     /// Create a new bank that points to an immutable checkpoint of another bank.
-    pub fn new_from_parent(parent: Arc<Bank>, collector_id: &Pubkey, slot: Slot) -> Self {
+    pub fn new_from_parent(parent: Arc<Bank>, collector_id: &Pubkey, slot: Slot, 
+        transaction_result_notifier_lock: Option<TransactionResultNotifierLock>,) -> Self {
         Self::_new_from_parent(
             parent,
             collector_id,
             slot,
             null_tracer(),
             NewBankOptions::default(),
+            transaction_result_notifier_lock,
         )
     }
 
@@ -1187,8 +1194,9 @@ impl Bank {
         collector_id: &Pubkey,
         slot: Slot,
         new_bank_options: NewBankOptions,
+        transaction_result_notifier_lock: Option<TransactionResultNotifierLock>,
     ) -> Self {
-        Self::_new_from_parent(parent, collector_id, slot, null_tracer(), new_bank_options)
+        Self::_new_from_parent(parent, collector_id, slot, null_tracer(), new_bank_options, transaction_result_notifier_lock)
     }
 
     pub fn new_from_parent_with_tracer(
@@ -1203,6 +1211,7 @@ impl Bank {
             slot,
             Some(reward_calc_tracer),
             NewBankOptions::default(),
+            None,
         )
     }
 
@@ -1286,6 +1295,7 @@ impl Bank {
         slot: Slot,
         reward_calc_tracer: Option<impl RewardCalcTracer>,
         new_bank_options: NewBankOptions,
+        transaction_result_notifier_lock: Option<TransactionResultNotifierLock>,
     ) -> Self {
         let mut time = Measure::start("bank::new_from_parent");
         let NewBankOptions { vote_only_bank } = new_bank_options;
@@ -1418,6 +1428,7 @@ impl Bank {
             loaded_programs_cache: parent.loaded_programs_cache.clone(),
             check_program_modification_slot: false,
             epoch_reward_status: parent.epoch_reward_status.clone(),
+            transaction_result_notifier_lock,
         };
 
         let (_, ancestors_time_us) = measure_us!({
@@ -1725,6 +1736,7 @@ impl Bank {
         collector_id: &Pubkey,
         slot: Slot,
         data_source: CalcAccountsHashDataSource,
+        transaction_result_notifier_lock: Option<TransactionResultNotifierLock>,
     ) -> Self {
         parent.freeze();
         parent
@@ -1743,7 +1755,7 @@ impl Bank {
             .set_valid(epoch_accounts_hash, parent.slot());
 
         let parent_timestamp = parent.clock().unix_timestamp;
-        let mut new = Bank::new_from_parent(parent, collector_id, slot);
+        let mut new = Bank::new_from_parent(parent, collector_id, slot, transaction_result_notifier_lock);
         new.apply_feature_activations(ApplyFeatureActivationsCaller::WarpFromParent, false);
         new.update_epoch_stakes(new.epoch_schedule().get_epoch(slot));
         new.tick_height.store(new.max_tick_height(), Relaxed);
@@ -1856,6 +1868,7 @@ impl Bank {
             loaded_programs_cache: Arc::<RwLock<LoadedPrograms>>::default(),
             check_program_modification_slot: false,
             epoch_reward_status: EpochRewardStatus::default(),
+            transaction_result_notifier_lock: None,
         };
         bank.finish_init(
             genesis_config,
@@ -5132,6 +5145,17 @@ impl Bank {
                 Ok(_) => None,
             })
             .collect();
+
+        
+        let transaction_result_notifier_lock = self.transaction_result_notifier_lock.clone();
+        if let Some(transaction_result_notifier_lock) = transaction_result_notifier_lock {
+            let transaction_error_notifier = transaction_result_notifier_lock.read();
+            if let Ok(transaction_error_notifier) = transaction_error_notifier {
+                batch.sanitized_transactions().iter().zip(batch.lock_results()).for_each(|(transaction, result)| {
+                    transaction_error_notifier.notify_transaction_result(transaction, &result);
+                });
+            }
+        }
 
         let mut check_time = Measure::start("check_transactions");
         let mut check_results = self.check_transactions(

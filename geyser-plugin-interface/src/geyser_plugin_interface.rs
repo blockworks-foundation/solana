@@ -340,6 +340,12 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
+    /// Called when we get banking stage errors.
+    #[allow(unused_variables)]
+    fn notify_banking_stage_errors(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// Check if the plugin is interested in account data
     /// Default is true -- if the plugin is not interested in
     /// account data, please return false.
@@ -358,6 +364,13 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     /// Default is false -- if the plugin is interested in
     /// entry data, return true.
     fn entry_notifications_enabled(&self) -> bool {
+        false
+    }
+
+    /// Check if the plugin is interesed in transaction errors duing banking
+    /// stage Default is false -- if the plugin is interested in naking
+    /// stage errors
+    fn banking_stage_errors(&self) -> bool {
         false
     }
 }

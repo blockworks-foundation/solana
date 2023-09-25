@@ -1,3 +1,6 @@
+use std::{sync::{RwLock, Arc}, fmt::Debug};
+use super::SanitizedTransaction;
+
 use {
     crate::{
         instruction::InstructionError,
@@ -198,3 +201,9 @@ impl From<AddressLoaderError> for TransactionError {
         }
     }
 }
+
+pub trait TransactionResultNotifier : Debug {
+    fn notify_transaction_result(&self, transaction: &SanitizedTransaction, result: &Result<(), TransactionError>);
+}
+
+pub type TransactionResultNotifierLock = Arc<RwLock<dyn TransactionResultNotifier + Sync + Send>>;
