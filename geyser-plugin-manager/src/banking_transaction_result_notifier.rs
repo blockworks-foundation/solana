@@ -5,6 +5,7 @@ use {
     solana_metrics::{create_counter, inc_counter, inc_new_counter, inc_new_counter_debug},
     solana_sdk::{
         signature::Signature,
+        slot_history::Slot,
         transaction::{TransactionError, TransactionResultNotifier},
     },
     std::sync::{Arc, RwLock},
@@ -20,6 +21,7 @@ impl TransactionResultNotifier for BankingTransactionResultImpl {
         &self,
         transaction: Signature,
         result: Option<TransactionError>,
+        slot: Slot,
     ) {
         let mut measure = Measure::start("geyser-plugin-notify_plugins_of_entry_info");
 
@@ -32,7 +34,8 @@ impl TransactionResultNotifier for BankingTransactionResultImpl {
             if !plugin.banking_transaction_results_notifications_enabled() {
                 continue;
             }
-            match plugin.notify_banking_stage_transaction_results(transaction, result.clone()) {
+            match plugin.notify_banking_stage_transaction_results(transaction, result.clone(), slot)
+            {
                 Err(err) => {
                     error!(
                         "Failed to notify banking transaction result, error: ({}) to plugin {}",

@@ -4,6 +4,7 @@ use {
         message::{AddressLoaderError, SanitizeMessageError},
         sanitize::SanitizeError,
         signature::Signature,
+        slot_history::Slot,
     },
     serde::Serialize,
     std::{
@@ -201,6 +202,7 @@ pub trait TransactionResultNotifier: Debug {
         &self,
         transaction_signature: Signature,
         error: Option<TransactionError>,
+        slot: Slot,
     );
 }
 

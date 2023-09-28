@@ -1,4 +1,3 @@
-use solana_sdk::transaction::TransactionError;
 /// The interface for Geyser plugins. A plugin must implement
 /// the GeyserPlugin trait to work with the runtime.
 /// In addition, the dynamic library must export a "C" function _create_plugin which
@@ -7,7 +6,7 @@ use {
     solana_sdk::{
         clock::{Slot, UnixTimestamp},
         signature::Signature,
-        transaction::SanitizedTransaction,
+        transaction::{SanitizedTransaction, TransactionError},
     },
     solana_transaction_status::{Reward, TransactionStatusMeta},
     std::{any::Any, error, io},
@@ -347,6 +346,7 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
         &self,
         transaction: Signature,
         error: Option<TransactionError>,
+        slot: Slot,
     ) -> Result<()> {
         Ok(())
     }

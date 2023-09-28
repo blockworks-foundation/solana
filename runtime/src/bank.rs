@@ -4406,6 +4406,7 @@ impl Bank {
                         transaction_error_notifier.notify_banking_transaction_result(
                             transaction.signatures()[0],
                             result.clone().err(),
+                            self.slot,
                         );
                     });
             }
