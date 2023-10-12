@@ -4404,7 +4404,7 @@ impl Bank {
                     .zip(batch.lock_results())
                     .for_each(|(transaction, result)| {
                         transaction_error_notifier.notify_banking_transaction_result(
-                            transaction.signatures()[0],
+                            transaction,
                             result.clone().err(),
                             self.slot,
                         );

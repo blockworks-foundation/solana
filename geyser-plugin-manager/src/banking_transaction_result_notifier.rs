@@ -4,9 +4,8 @@ use {
     solana_measure::measure::Measure,
     solana_metrics::{create_counter, inc_counter, inc_new_counter, inc_new_counter_debug},
     solana_sdk::{
-        signature::Signature,
         slot_history::Slot,
-        transaction::{TransactionError, TransactionResultNotifier},
+        transaction::{TransactionError, TransactionResultNotifier, SanitizedTransaction},
     },
     std::sync::{Arc, RwLock},
 };
@@ -19,7 +18,7 @@ pub(crate) struct BankingTransactionResultImpl {
 impl TransactionResultNotifier for BankingTransactionResultImpl {
     fn notify_banking_transaction_result(
         &self,
-        transaction: Signature,
+        transaction: &SanitizedTransaction,
         result: Option<TransactionError>,
         slot: Slot,
     ) {

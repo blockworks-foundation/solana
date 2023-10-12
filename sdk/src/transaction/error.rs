@@ -1,9 +1,10 @@
+use super::SanitizedTransaction;
+
 use {
     crate::{
         instruction::InstructionError,
         message::{AddressLoaderError, SanitizeMessageError},
         sanitize::SanitizeError,
-        signature::Signature,
         slot_history::Slot,
     },
     serde::Serialize,
@@ -200,7 +201,7 @@ impl From<AddressLoaderError> for TransactionError {
 pub trait TransactionResultNotifier: Debug {
     fn notify_banking_transaction_result(
         &self,
-        transaction_signature: Signature,
+        transaction: &SanitizedTransaction,
         error: Option<TransactionError>,
         slot: Slot,
     );

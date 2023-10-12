@@ -344,7 +344,7 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     #[allow(unused_variables)]
     fn notify_banking_stage_transaction_results(
         &self,
-        transaction: Signature,
+        transaction: &SanitizedTransaction,
         error: Option<TransactionError>,
         slot: Slot,
     ) -> Result<()> {
