@@ -1,5 +1,3 @@
-use solana_account_decoder::parse_token::pubkey_from_spl_token;
-
 use {
     crate::parse_instruction::{
         check_num_accounts, ParsableProgram, ParseInstructionError, ParsedInstructionEnum,
@@ -11,7 +9,9 @@ use {
         transfer_hook::*,
     },
     serde_json::{json, Map, Value},
-    solana_account_decoder::parse_token::{token_amount_to_ui_amount, UiAccountState},
+    solana_account_decoder::parse_token::{
+        pubkey_from_spl_token, token_amount_to_ui_amount, UiAccountState,
+    },
     solana_sdk::{
         instruction::{AccountMeta, CompiledInstruction, Instruction},
         message::AccountKeys,
