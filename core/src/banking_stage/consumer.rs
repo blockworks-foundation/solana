@@ -1,5 +1,3 @@
-use solana_sdk::{compute_budget::{self, ComputeBudgetInstruction}, borsh0_10::try_from_slice_unchecked};
-
 use {
     super::{
         committer::{CommitTransactionDetails, Committer},
@@ -26,7 +24,9 @@ use {
         transaction_error_metrics::TransactionErrorMetrics,
     },
     solana_sdk::{
+        borsh0_10::try_from_slice_unchecked,
         clock::{Slot, FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET, MAX_PROCESSING_AGE},
+        compute_budget::{self, ComputeBudgetInstruction},
         feature_set,
         pubkey::Pubkey,
         saturating_add_assign,
@@ -595,20 +595,20 @@ impl Consumer {
                         match try_from_slice_unchecked(&instruction.data) {
                             Ok(ComputeBudgetInstruction::SetComputeUnitPrice(micro_lamports)) => {
                                 return Some(micro_lamports);
-                            },
+                            }
                             Ok(ComputeBudgetInstruction::RequestUnitsDeprecated {
                                 additional_fee,
                                 ..
                             }) => {
                                 return Some(additional_fee as u64);
                             }
-                            _ => {
-                            }
+                            _ => {}
                         }
                     }
                 }
                 None
-            }).minmax();
+            })
+            .minmax();
         let (scheduled_min_prioritization_fees, scheduled_max_prioritization_fees) =
             min_max.into_option().unwrap_or_default();
 

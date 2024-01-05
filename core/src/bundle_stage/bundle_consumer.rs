@@ -16,6 +16,7 @@ use {
         tip_manager::TipManager,
         unprocessed_transaction_storage::UnprocessedTransactionStorage,
     },
+    itertools::Itertools,
     solana_bundle::{
         bundle_execution::{load_and_execute_bundle, BundleExecutionMetrics},
         BundleExecutionError, BundleExecutionResult, TipError,
@@ -27,8 +28,10 @@ use {
         bank::Bank, cost_model::TransactionCost, transaction_error_metrics::TransactionErrorMetrics,
     },
     solana_sdk::{
+        borsh0_10::try_from_slice_unchecked,
         bundle::SanitizedBundle,
         clock::{Slot, MAX_PROCESSING_AGE},
+        compute_budget::{self, ComputeBudgetInstruction},
         feature_set,
         pubkey::Pubkey,
         transaction::{self},
@@ -507,6 +510,33 @@ impl BundleConsumer {
             sanitized_bundle.bundle_id,
             sanitized_bundle.transactions.len()
         );
+
+        let minmax = sanitized_bundle
+            .transactions
+            .iter()
+            .filter_map(|transaction| {
+                let message = transaction.message();
+                for (program_id, instruction) in message.program_instructions_iter() {
+                    if compute_budget::check_id(program_id) {
+                        match try_from_slice_unchecked(&instruction.data) {
+                            Ok(ComputeBudgetInstruction::SetComputeUnitPrice(micro_lamports)) => {
+                                return Some(micro_lamports as usize);
+                            }
+                            Ok(ComputeBudgetInstruction::RequestUnitsDeprecated {
+                                additional_fee,
+                                ..
+                            }) => {
+                                return Some(additional_fee as usize);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                None
+            })
+            .minmax();
+        let (scheduled_max_prioritization_fees, scheduled_min_prioritization_fees) =
+            minmax.into_option().unwrap_or_default();
 
         let (
             (transaction_qos_cost_results, _cost_model_throttled_transactions_count),

@@ -16,7 +16,7 @@ use {
             DeserializedPacket, PacketBatchInsertionMetrics, UnprocessedPacketBatches,
         },
     },
-    itertools::Itertools,
+    itertools::{Itertools, MinMaxResult},
     min_max_heap::MinMaxHeap,
     solana_bundle::BundleExecutionError,
     solana_measure::measure,
@@ -299,6 +299,10 @@ impl UnprocessedTransactionStorage {
             Self::LocalTransactionStorage(transaction_storage) => {
                 transaction_storage.get_min_priority()
             }
+            Self::BundleStorage(bundle_storage) => bundle_storage
+                .get_minmax_priorization_fees()
+                .into_option()
+                .map(|x| x.0),
         }
     }
 
@@ -308,6 +312,10 @@ impl UnprocessedTransactionStorage {
             Self::LocalTransactionStorage(transaction_storage) => {
                 transaction_storage.get_max_priority()
             }
+            Self::BundleStorage(bundle_storage) => bundle_storage
+                .get_minmax_priorization_fees()
+                .into_option()
+                .map(|x| x.1),
         }
     }
 
@@ -1390,5 +1398,35 @@ impl BundleStorage {
             .accumulate_transaction_errors(&error_metrics);
 
         sanitized_bundles
+    }
+
+    pub fn get_minmax_priorization_fees(&self) -> MinMaxResult<u64> {
+        let (min, max) = self
+            .unprocessed_bundle_storage
+            .iter()
+            .map(|bundle| {
+                bundle
+                    .get_minmax_priorization_fees()
+                    .into_option()
+                    .unwrap_or((u64::MAX, u64::MIN))
+            })
+            .fold((u64::MAX, u64::MIN), |(a, b), (c, d)| {
+                (std::cmp::min(a, c), std::cmp::max(b, d))
+            });
+
+        let (min_c, max_c) = self
+            .cost_model_buffered_bundle_storage
+            .iter()
+            .map(|bundle| {
+                bundle
+                    .get_minmax_priorization_fees()
+                    .into_option()
+                    .unwrap_or((u64::MAX, u64::MIN))
+            })
+            .fold((u64::MAX, u64::MIN), |(a, b), (c, d)| {
+                (std::cmp::min(a, c), std::cmp::max(b, d))
+            });
+
+        MinMaxResult::MinMax(std::cmp::min(min, min_c), std::cmp::max(max, max_c))
     }
 }
