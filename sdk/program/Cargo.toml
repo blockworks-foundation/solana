@@ -16,7 +16,7 @@ bincode = { workspace = true }
 blake3 = { workspace = true, features = ["digest", "traits-preview"] }
 borsh = { workspace = true }
 borsh0-9 = { package = "borsh", version = "0.9.3" }
-fd_bs58 = { workspace = true }
+fd_bs58 = "0.1.0"
 bv = { workspace = true, features = ["serde"] }
 bytemuck = { workspace = true, features = ["derive"] }
 itertools =  { workspace = true }

@@ -63,13 +63,13 @@ impl AsRef<[u8]> for Hash {
 
 impl fmt::Debug for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", fd_bs58::fd_encode_32::encode_32(self.0))
+        write!(f, "{}", fd_bs58::encode_32(self.0))
     }
 }
 
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", fd_bs58::fd_encode_32::encode_32(self.0))
+        write!(f, "{}", fd_bs58::encode_32(self.0))
     }
 }
 
@@ -88,7 +88,7 @@ impl FromStr for Hash {
         if s.len() > MAX_BASE58_LEN {
             return Err(ParseHashError::WrongSize);
         }
-        let bytes = fd_bs58::fd_decode_32::fd_decode_32(s).map_err(|_| ParseHashError::Invalid)?;
+        let bytes = fd_bs58::decode_32(s).map_err(|_| ParseHashError::Invalid)?;
         if bytes.len() != mem::size_of::<Hash>() {
             Err(ParseHashError::WrongSize)
         } else {
@@ -172,11 +172,11 @@ mod tests {
     fn test_hash_fromstr() {
         let hash = hash(&[1u8]);
 
-        let mut hash_base58_str = fd_bs58::fd_encode_32::encode_32(hash);
+        let mut hash_base58_str = fd_bs58::encode_32(hash);
 
         assert_eq!(hash_base58_str.parse::<Hash>(), Ok(hash));
 
-        hash_base58_str.push_str(&fd_bs58::fd_encode_32::encode_32(hash.0));
+        hash_base58_str.push_str(&fd_bs58::encode_32(hash.0));
         assert_eq!(
             hash_base58_str.parse::<Hash>(),
             Err(ParseHashError::WrongSize)
@@ -198,7 +198,7 @@ mod tests {
             Err(ParseHashError::WrongSize)
         );
 
-        let mut hash_base58_str = fd_bs58::fd_encode_32::encode_32(hash.0);
+        let mut hash_base58_str = fd_bs58::encode_32(hash.0);
         assert_eq!(hash_base58_str.parse::<Hash>(), Ok(hash));
 
         // throw some non-base58 stuff in there
