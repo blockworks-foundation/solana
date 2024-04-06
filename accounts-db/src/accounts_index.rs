@@ -91,7 +91,7 @@ pub enum UpsertReclaim {
     IgnoreReclaims,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ScanConfig {
     /// checked by the scan. When true, abort scan.
     pub abort: Option<Arc<AtomicBool>>,
@@ -99,6 +99,15 @@ pub struct ScanConfig {
     /// true to allow return of all matching items and allow them to be unsorted.
     /// This is more efficient.
     pub collect_all_unsorted: bool,
+}
+
+impl Default for ScanConfig {
+    fn default() -> Self {
+        Self {
+            collect_all_unsorted: true,
+            abort: None
+        }
+    }
 }
 
 impl ScanConfig {
