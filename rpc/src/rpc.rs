@@ -2030,7 +2030,7 @@ impl JsonRpcRequestProcessor {
         } else {
             // this path does not need to provide a mb limit because we only want to support secondary indexes
             Ok(bank
-                .get_filtered_program_accounts(program_id, filter_closure, &ScanConfig::default())
+                .get_filtered_program_accounts(program_id, filter_closure, &ScanConfig::new(true))
                 .map_err(|e| RpcCustomError::ScanError {
                     message: e.to_string(),
                 })?)
