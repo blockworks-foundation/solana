@@ -89,7 +89,6 @@ impl FromStr for Hash {
             return Err(ParseHashError::WrongSize);
         }
         let bytes = fd_bs58::decode_32(s)
-            .into_vec()
             .map_err(|_| ParseHashError::Invalid)?;
         if bytes.len() != mem::size_of::<Hash>() {
             Err(ParseHashError::WrongSize)

@@ -110,7 +110,6 @@ impl FromStr for Hash {
             return Err(ParseHashError::WrongSize);
         }
         let bytes = fd_bs58::decode_32(s)
-            .into_vec()
             .map_err(|_| ParseHashError::Invalid)?;
         if bytes.len() != mem::size_of::<Hash>() {
             Err(ParseHashError::WrongSize)
@@ -214,7 +213,7 @@ mod tests {
             Err(ParseHashError::WrongSize)
         );
 
-        let input_too_big = bs58::encode(&[0xffu8; HASH_BYTES + 1]).into_string();
+        let input_too_big = fd_bs58::encode_32(&[0xffu8; HASH_BYTES + 1]);
         assert!(input_too_big.len() > MAX_BASE58_LEN);
         assert_eq!(
             input_too_big.parse::<Hash>(),
