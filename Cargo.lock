@@ -2151,6 +2151,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fd_bs58"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdaac1b30ff95de4562a79ae990f91ac7bf2062d7313cc25c58987762c8e8160"
+
+[[package]]
 name = "feature-probe"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6651,13 +6657,13 @@ dependencies = [
  "borsh 0.10.3",
  "borsh 0.9.3",
  "borsh 1.2.1",
- "bs58",
  "bv",
  "bytemuck",
  "cc",
  "console_error_panic_hook",
  "console_log",
  "curve25519-dalek",
+ "fd_bs58",
  "getrandom 0.2.10",
  "itertools",
  "js-sys",

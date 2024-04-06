@@ -121,7 +121,6 @@ impl FromStr for Pubkey {
             return Err(ParsePubkeyError::WrongSize);
         }
         let pubkey_vec = fd_bs58::decode_32(s)
-            .into_vec()
             .map_err(|_| ParsePubkeyError::Invalid)?;
         if pubkey_vec.len() != mem::size_of::<Pubkey>() {
             Err(ParsePubkeyError::WrongSize)
