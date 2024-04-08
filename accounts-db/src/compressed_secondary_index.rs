@@ -1,4 +1,4 @@
-use std::{hash::Hasher, mem::transmute};
+use std::{hash::Hasher, mem::transmute, ops::RangeBounds};
 
 use bv::BitsExt;
 use dashmap::{lock::RwLock, DashMap, DashSet};
@@ -29,6 +29,34 @@ pub (crate) fn prefix_to_bound(p: u64) -> RangeBounds<Pubkey> {
     Bound::Included(Pubkey::from([1u8; 32]))
   };
   return RangeBounds::new(begin, end)
+}
+
+// TODO: finish implementation
+pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) -> Vec<(RangeBounds<Pubkey>, Vec(u64))> {
+
+  // pre-sort prefixes, so they are easier to group
+  prefix_set.sort();
+
+  let group_size = 1u64 << group_size_bits;
+  let mask = group_size - 1;
+
+  // TODO there's a second upper bound defined by group_size
+  let mut groups = Vec::new_with_capacity(prefix_set.len());
+
+  let mut last_group = 0;
+  for prefix in prefix_set {
+    if *prefix & mask != last_group {
+      // start a new group
+      let start = *prefix & !mask;
+      let end = prefix.checked_add(group_size).map(|p| (p & !mask) - 1);
+      let range = RangeBounds::new(Bound::Included(start), Bound::Included(end.unwrap_or(u64::MAX)));
+      groups.push((range, vec![]));
+      last_group = prefix & mask;
+    }
+
+    groups.last().unwrap().1.push(prefix);
+  }
+  groups
 }
 
 pub (crate) struct PrefixHasher { 
