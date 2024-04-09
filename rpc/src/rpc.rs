@@ -486,6 +486,12 @@ impl JsonRpcRequestProcessor {
             min_context_slot,
         })?;
         let encoding = encoding.unwrap_or(UiAccountEncoding::Binary);
+        let just_get_program_ids = data_slice_config
+            .clone()
+            .map(|x| x.length == 0)
+            .unwrap_or_default()
+            && filters.len() == 0;
+
         optimize_filters(&mut filters);
         let keyed_accounts = {
             if let Some(owner) = get_spl_token_owner_filter(program_id, &filters) {
@@ -493,7 +499,12 @@ impl JsonRpcRequestProcessor {
             } else if let Some(mint) = get_spl_token_mint_filter(program_id, &filters) {
                 self.get_filtered_spl_token_accounts_by_mint(&bank, program_id, &mint, filters)?
             } else {
-                self.get_filtered_program_accounts(&bank, program_id, filters)?
+                self.get_filtered_program_accounts(
+                    &bank,
+                    program_id,
+                    filters,
+                    just_get_program_ids,
+                )?
             }
         };
         let accounts = if is_known_spl_token_id(program_id)
@@ -1969,7 +1980,7 @@ impl JsonRpcRequestProcessor {
         } else {
             // Filter on Token Account state
             filters.push(RpcFilterType::TokenAccountState);
-            self.get_filtered_program_accounts(&bank, &token_program_id, filters)?
+            self.get_filtered_program_accounts(&bank, &token_program_id, filters, false)?
         };
         let accounts = if encoding == UiAccountEncoding::JsonParsed {
             get_parsed_token_accounts(bank.clone(), keyed_accounts.into_iter()).collect()
@@ -1993,6 +2004,7 @@ impl JsonRpcRequestProcessor {
         bank: &Bank,
         program_id: &Pubkey,
         mut filters: Vec<RpcFilterType>,
+        just_get_program_ids: bool,
     ) -> RpcCustomResult<Vec<(Pubkey, AccountSharedData)>> {
         optimize_filters(&mut filters);
         let filter_closure = |account: &AccountSharedData| {
@@ -2023,6 +2035,7 @@ impl JsonRpcRequestProcessor {
                     },
                     &ScanConfig::default(),
                     bank.byte_limit_for_scans(),
+                    just_get_program_ids,
                 )
                 .map_err(|e| RpcCustomError::ScanError {
                     message: e.to_string(),
@@ -2079,12 +2092,13 @@ impl JsonRpcRequestProcessor {
                     },
                     &ScanConfig::default(),
                     bank.byte_limit_for_scans(),
+                    false,
                 )
                 .map_err(|e| RpcCustomError::ScanError {
                     message: e.to_string(),
                 })?)
         } else {
-            self.get_filtered_program_accounts(bank, program_id, filters)
+            self.get_filtered_program_accounts(bank, program_id, filters, false)
         }
     }
 
@@ -2129,12 +2143,13 @@ impl JsonRpcRequestProcessor {
                     },
                     &ScanConfig::default(),
                     bank.byte_limit_for_scans(),
+                    false,
                 )
                 .map_err(|e| RpcCustomError::ScanError {
                     message: e.to_string(),
                 })?)
         } else {
-            self.get_filtered_program_accounts(bank, program_id, filters)
+            self.get_filtered_program_accounts(bank, program_id, filters, false)
         }
     }
 

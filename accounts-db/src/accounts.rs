@@ -1065,6 +1065,7 @@ impl Accounts {
         filter: F,
         config: &ScanConfig,
         byte_limit_for_scan: Option<usize>,
+        just_get_program_ids: bool,
     ) -> ScanResult<Vec<TransactionAccount>> {
         let sum = AtomicUsize::default();
         let config = config.recreate_with_abort();
@@ -1077,21 +1078,30 @@ impl Accounts {
                 *index_key,
                 |some_account_tuple| {
                     Self::load_while_filtering(&mut collector, some_account_tuple, |account| {
-                        let use_account = filter(account);
-                        if use_account
-                            && Self::accumulate_and_check_scan_result_size(
+                        if just_get_program_ids {
+                            Self::accumulate_and_check_scan_result_size(
                                 &sum,
                                 account,
                                 &byte_limit_for_scan,
                             )
-                        {
-                            // total size of results exceeds size limit, so abort scan
-                            config.abort();
+                        } else {
+                            let use_account = filter(account);
+                            if use_account
+                                && Self::accumulate_and_check_scan_result_size(
+                                    &sum,
+                                    account,
+                                    &byte_limit_for_scan,
+                                )
+                            {
+                                // total size of results exceeds size limit, so abort scan
+                                config.abort();
+                            }
+                            use_account
                         }
-                        use_account
                     });
                 },
                 &config,
+                just_get_program_ids,
             )
             .map(|_| collector);
         Self::maybe_abort_scan(result, &config)

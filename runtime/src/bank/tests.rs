@@ -4329,6 +4329,7 @@ fn test_get_filtered_indexed_accounts_limit_exceeded() {
             |_| true,
             &ScanConfig::default(),
             Some(limit), // limit here will be exceeded, resulting in aborted scan
+            false,
         )
         .is_err());
 }
@@ -4355,6 +4356,7 @@ fn test_get_filtered_indexed_accounts() {
             |_| true,
             &ScanConfig::default(),
             None,
+            false,
         )
         .unwrap();
     assert_eq!(indexed_accounts.len(), 1);
@@ -4373,6 +4375,7 @@ fn test_get_filtered_indexed_accounts() {
             |_| true,
             &ScanConfig::default(),
             None,
+            false,
         )
         .unwrap();
     assert_eq!(indexed_accounts.len(), 1);
@@ -4383,6 +4386,7 @@ fn test_get_filtered_indexed_accounts() {
             |_| true,
             &ScanConfig::default(),
             None,
+            false,
         )
         .unwrap();
     assert_eq!(indexed_accounts.len(), 1);
@@ -4395,6 +4399,7 @@ fn test_get_filtered_indexed_accounts() {
             |account| account.owner() == &program_id,
             &ScanConfig::default(),
             None,
+            false,
         )
         .unwrap();
     assert!(indexed_accounts.is_empty());
@@ -4404,6 +4409,7 @@ fn test_get_filtered_indexed_accounts() {
             |account| account.owner() == &another_program_id,
             &ScanConfig::default(),
             None,
+            false,
         )
         .unwrap();
     assert_eq!(indexed_accounts.len(), 1);

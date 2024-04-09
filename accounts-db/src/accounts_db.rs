@@ -4947,6 +4947,7 @@ impl AccountsDb {
         index_key: IndexKey,
         mut scan_func: F,
         config: &ScanConfig,
+        just_get_program_ids: bool,
     ) -> ScanResult<bool>
     where
         F: FnMut(Option<(&Pubkey, AccountSharedData, Slot)>),
@@ -4968,11 +4969,16 @@ impl AccountsDb {
             bank_id,
             index_key,
             |pubkey, (account_info, slot)| {
-                let account_slot = self
-                    .get_account_accessor(slot, pubkey, &account_info.storage_location())
-                    .get_loaded_account()
-                    .map(|loaded_account| (pubkey, loaded_account.take_account(), slot));
-                scan_func(account_slot)
+                if just_get_program_ids {
+                    let dummy_shared_data = AccountSharedData::new(0, 0, key);
+                    scan_func(Some((pubkey, dummy_shared_data, slot)))
+                } else {
+                    let account_slot = self
+                        .get_account_accessor(slot, pubkey, &account_info.storage_location())
+                        .get_loaded_account()
+                        .map(|loaded_account| (pubkey, loaded_account.take_account(), slot));
+                    scan_func(account_slot)
+                }
             },
             config,
         )?;
