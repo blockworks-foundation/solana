@@ -26,6 +26,7 @@ pub mod bucket_map_holder;
 pub mod bucket_map_holder_stats;
 pub mod cache_hash_data;
 pub mod cache_hash_data_stats;
+pub mod compressed_secondary_index;
 pub mod contains;
 pub mod epoch_accounts_hash;
 pub mod hardened_unpack;

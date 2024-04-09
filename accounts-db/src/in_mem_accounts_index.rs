@@ -228,6 +228,9 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> InMemAccountsIndex<T,
         let m = Measure::start("items");
         self.hold_range_in_memory(range, true);
         let map = self.map_internal.read().unwrap();
+        // TODO: this is way too large, should be based on a proper statistic, range could be point range
+        //       10 + ceil(ln2(range.end - range.start)) - (8*32) * len(accountsdb)
+        //       potentially optimize with a stack vector, we really just expect to lookup a single element
         let mut result = Vec::with_capacity(map.len());
         map.iter().for_each(|(k, v)| {
             if range.contains(k) {

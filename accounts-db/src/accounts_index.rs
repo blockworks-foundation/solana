@@ -1,16 +1,6 @@
 use {
     crate::{
-        accounts_index_storage::{AccountsIndexStorage, Startup},
-        accounts_partition::RentPayingAccountsByPartition,
-        ancestors::Ancestors,
-        bucket_map_holder::{Age, BucketMapHolder},
-        contains::Contains,
-        in_mem_accounts_index::{InMemAccountsIndex, InsertNewEntryResults, StartupStats},
-        inline_spl_token::{self, GenericTokenAccount},
-        inline_spl_token_2022,
-        pubkey_bins::PubkeyBinCalculator24,
-        rolling_bit_field::RollingBitField,
-        secondary_index::*,
+        accounts_index_storage::{AccountsIndexStorage, Startup}, accounts_partition::RentPayingAccountsByPartition, ancestors::Ancestors, bucket_map_holder::{Age, BucketMapHolder}, compressed_secondary_index::{self, CompressedSecondaryIndex}, contains::Contains, in_mem_accounts_index::{InMemAccountsIndex, InsertNewEntryResults, StartupStats}, inline_spl_token::{self, GenericTokenAccount}, inline_spl_token_2022, pubkey_bins::PubkeyBinCalculator24, rolling_bit_field::RollingBitField, secondary_index::*
     },
     log::*,
     ouroboros::self_referencing,
@@ -29,8 +19,7 @@ use {
         collections::{btree_map::BTreeMap, HashSet},
         fmt::Debug,
         ops::{
-            Bound,
-            Bound::{Excluded, Included, Unbounded},
+            Bound::{self, Excluded, Included, Unbounded},
             Range, RangeBounds,
         },
         path::PathBuf,
@@ -158,6 +147,7 @@ pub enum ScanError {
 enum ScanTypes<R: RangeBounds<Pubkey>> {
     Unindexed(Option<R>),
     Indexed(IndexKey),
+    Compressed(IndexKey),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -987,6 +977,16 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
                     config,
                 );
             }
+            ScanTypes::Compressed(IndexKey(index_key)) => {
+                self.do_scan_compressed_secondary_index(
+                    ancestors,
+                    func,
+                    &self.compressed_index,
+                    index_key,
+                    Some(max_root),
+                    config
+                );
+            }
         }
 
         {
@@ -1123,7 +1123,46 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
         }
     }
 
+    fn do_scan_compressed_secondary_index<F>(
+        &self,
+        ancestors: &Ancestors,
+        mut func: F,
+        index: &CompressedSecondaryIndex,
+        index_key: &Pubkey,
+        max_root: Option<Slot>,
+        config: &ScanConfig,
+    ) where
+        F: FnMut(&Pubkey, (&T, Slot)),
+    {
+        // TODO: port metrics from do_scan_accounts
+
+        let prefix_set = index.get(index_key);
+        // pre-sort prefixes, so they have the same order as bins
+        prefix_set.sort();
+
+        // TODO: measure the impact of grouping prefixes to less significant bytes (or whole bins)
+
+        // iterating all bins is now a monotonic scan
+        for prefix in prefix_set {
+            let bin_index: usize = self.bin_calculator().bin_from_u64_prefix();
+            let lock = &self.account_maps[bin_index];
+            let range = prefix_to_bound(prefix);
+            // NOTE: quite sure hold_range_in_memory overhead dominates for point-range invocation
+            let entries = lock.items(&range);
+            for (pk, list) in entries {
+                let list_r = &list.slot_list.read().unwrap();
+                if let Some(index) = self.latest_slot(Some(ancestors), list_r, max_root) {
+                    func(&pubkey, (&list_r[index].1, list_r[index].0));
+                }
+                if config.is_aborted() {
+                    return;
+                }
+            }
+        }
+    }
+
     pub fn get_account_read_entry(&self, pubkey: &Pubkey) -> Option<ReadAccountMapEntry<T>> {
+        // TODO: completely unneded ARC
         let lock = self.get_bin(pubkey);
         self.get_account_read_entry_with_lock(pubkey, &lock)
     }
@@ -1154,15 +1193,18 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
         dead_keys: &[&Pubkey],
         account_indexes: &AccountSecondaryIndexes,
     ) -> HashSet<Pubkey> {
+        // TODO: add metrics
         let mut pubkeys_removed_from_accounts_index = HashSet::default();
         if !dead_keys.is_empty() {
             for key in dead_keys.iter() {
+                // TODO: pre-sort by bins
                 let w_index = self.get_bin(key);
                 if w_index.remove_if_slot_list_empty(**key) {
                     pubkeys_removed_from_accounts_index.insert(**key);
                     // Note it's only safe to remove all the entries for this key
                     // because we have the lock for this key's entry in the AccountsIndex,
                     // so no other thread is also updating the index
+                    // TODO: batch purge
                     self.purge_secondary_indexes_by_inner_key(key, account_indexes);
                 }
             }

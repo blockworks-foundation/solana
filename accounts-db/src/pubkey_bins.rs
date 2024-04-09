@@ -35,6 +35,12 @@ impl PubkeyBinCalculator24 {
             >> self.shift_bits
     }
 
+    pub(crate) fn bin_from_u64_prefix(&self, prefix: u64) -> usize {
+        let as_ref = u64.as_bytes();
+        ((as_ref[0] as usize) << 16 | (as_ref[1] as usize) << 8 | (as_ref[2] as usize))
+            >> self.shift_bits
+    }
+
     #[cfg(test)]
     pub(crate) fn lowest_pubkey_from_bin(&self, mut bin: usize, bins: usize) -> Pubkey {
         assert!(bin < bins);
