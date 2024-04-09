@@ -120,6 +120,20 @@ pub struct AccountSharedData {
     rent_epoch: Epoch,
 }
 
+#[derive(PartialEq, Eq, Clone, Default, AbiExample, Deserialize)]
+#[serde(from = "AccountMetaData")]
+pub struct AccountMetaData {
+    /// lamports in the account
+    pub lamports: u64,
+    /// the program that owns this account. If executable, the program that loads this account.
+    pub owner: Pubkey,
+    /// this account's data contains a loaded program (and is now read-only)
+    pub executable: bool,
+    /// the epoch at which this account will next owe rent
+    pub rent_epoch: Epoch,
+    pub space: usize,
+}
+
 /// Compares two ReadableAccounts
 ///
 /// Returns true if accounts are essentially equivalent as in all fields are equivalent.
@@ -208,6 +222,16 @@ pub trait ReadableAccount: Sized {
             self.executable(),
             self.rent_epoch(),
         )
+    }
+
+    fn to_account_meta(&self) -> AccountMetaData {
+        AccountMetaData {
+            lamports: self.lamports(),
+            owner: *self.owner(),
+            rent_epoch: self.rent_epoch(),
+            executable: self.executable(),
+            space: self.data().len(),
+        }
     }
 }
 

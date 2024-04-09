@@ -18,7 +18,7 @@ use {
     log::*,
     memmap2::MmapMut,
     solana_sdk::{
-        account::{AccountSharedData, ReadableAccount},
+        account::{AccountMetaData, AccountSharedData, ReadableAccount},
         clock::Slot,
         pubkey::Pubkey,
         stake_history::Epoch,
@@ -496,13 +496,25 @@ impl AppendVec {
         ))
     }
 
-    fn get_account_meta(&self, offset: usize) -> Option<&AccountMeta> {
+    pub fn get_account_meta(&self, offset: usize) -> Option<&AccountMeta> {
         // Skip over StoredMeta data in the account
         let offset = offset.checked_add(mem::size_of::<StoredMeta>())?;
         // u64_align! does an unchecked add for alignment. Check that it won't cause an overflow.
         offset.checked_add(ALIGN_BOUNDARY_OFFSET - 1)?;
         let (account_meta, _): (&AccountMeta, _) = self.get_type(u64_align!(offset))?;
         Some(account_meta)
+    }
+
+    pub fn get_account_meta_data(&self, offset: usize) -> Option<AccountMetaData> {
+        let (meta, next): (&StoredMeta, _) = self.get_type(offset)?;
+        let (account_meta, _): (&AccountMeta, _) = self.get_type(next)?;
+        Some(AccountMetaData {
+            lamports: account_meta.lamports,
+            owner: account_meta.owner,
+            executable: account_meta.executable,
+            rent_epoch: account_meta.rent_epoch,
+            space: meta.data_len as usize,
+        })
     }
 
     /// Return Ok(index_of_matching_owner) if the account owner at `offset` is one of the pubkeys in `owners`.
