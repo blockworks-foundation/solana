@@ -105,7 +105,7 @@ impl Default for ScanConfig {
     fn default() -> Self {
         Self {
             collect_all_unsorted: true,
-            abort: None
+            abort: None,
         }
     }
 }

@@ -6818,6 +6818,7 @@ impl Bank {
         filter: F,
         config: &ScanConfig,
         byte_limit_for_scan: Option<usize>,
+        just_get_program_ids: bool,
     ) -> ScanResult<Vec<TransactionAccount>> {
         self.rc.accounts.load_by_index_key_with_filter(
             &self.ancestors,
@@ -6826,6 +6827,7 @@ impl Bank {
             filter,
             config,
             byte_limit_for_scan,
+            just_get_program_ids,
         )
     }
 
