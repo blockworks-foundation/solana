@@ -30,6 +30,7 @@ use {
     },
     thiserror::Error,
 };
+use crate::compressed_secondary_index::prefix_to_bound;
 
 pub const ITER_BATCH_SIZE: usize = 1000;
 pub const BINS_DEFAULT: usize = 8192;
@@ -1136,7 +1137,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
     {
         // TODO: port metrics from do_scan_accounts
 
-        let prefix_set = index.get(index_key);
+        let mut prefix_set = index.get(index_key);
         // pre-sort prefixes, so they have the same order as bins
         prefix_set.sort();
 
@@ -1152,7 +1153,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
             for (pk, list) in entries {
                 let list_r = &list.slot_list.read().unwrap();
                 if let Some(index) = self.latest_slot(Some(ancestors), list_r, max_root) {
-                    func(&pubkey, (&list_r[index].1, list_r[index].0));
+                    func(&index_key, (&list_r[index].1, list_r[index].0));
                 }
                 if config.is_aborted() {
                     return;

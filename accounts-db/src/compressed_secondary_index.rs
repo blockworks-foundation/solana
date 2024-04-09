@@ -1,8 +1,11 @@
 use std::{hash::Hasher, mem::transmute, ops::RangeBounds};
+use std::collections::Bound;
+use std::sync::atomic::Ordering;
 
 use bv::BitsExt;
 use dashmap::{lock::RwLock, DashMap, DashSet};
 use solana_sdk::pubkey::{self, Pubkey};
+use crate::secondary_index::SecondaryIndexStats;
 
 
 pub (crate) fn u64_prefix(msg: &[u8]) -> u64 {
@@ -59,12 +62,14 @@ pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) ->
   groups
 }
 
-pub (crate) struct PrefixHasher { 
+// TOOD rename - this is a hasher, not a hash!
+#[derive(Debug)]
+pub (crate) struct PrefixHash {
   hash: u64
 }
 
 // TODO: read hashbrown::hash_map
-impl Hasher for PrefixHasher {
+impl Hasher for PrefixHash {
   #[inline]
   fn write(&mut self, msg: &[u8]) {
     self.hash = u64_prefix(msg);
@@ -83,8 +88,8 @@ pub struct CompressedSecondaryIndex {
   metrics_name: &'static str,
   stats: SecondaryIndexStats,
 
-  pub index: DashMap<Pubkey, DashSet<u64, PrefixHasher>, PrefixHasher>,
-  pub reverse_index: DashMap<u64, RwLock<Vec<u64>>, PrefixHasher>,
+  pub index: DashMap<Pubkey, DashSet<u64, PrefixHash>, PrefixHash>,
+  pub reverse_index: DashMap<u64, RwLock<Vec<u64>>, PrefixHash>,
 }
 
 impl CompressedSecondaryIndex {
