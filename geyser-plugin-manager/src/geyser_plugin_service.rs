@@ -90,23 +90,29 @@ impl GeyserPluginService {
             if account_data_notifications_enabled {
                 let accounts_update_notifier =
                     AccountsUpdateNotifierImpl::new(plugin_manager.clone());
+                info!("Starting AccountsUpdateNotifierImpl");
                 Some(Arc::new(RwLock::new(accounts_update_notifier)))
             } else {
+                info!("Disable AccountsUpdateNotifierImpl");
                 None
             };
 
         let transaction_notifier: Option<TransactionNotifierLock> =
             if transaction_notifications_enabled {
                 let transaction_notifier = TransactionNotifierImpl::new(plugin_manager.clone());
+                info!("Starting TransactionNotifierImpl");
                 Some(Arc::new(RwLock::new(transaction_notifier)))
             } else {
+                info!("Disable TransactionNotifierImpl");
                 None
             };
 
         let entry_notifier: Option<EntryNotifierLock> = if entry_notifications_enabled {
             let entry_notifier = EntryNotifierImpl::new(plugin_manager.clone());
+            info!("Starting EntryNotifierImpl");
             Some(Arc::new(RwLock::new(entry_notifier)))
         } else {
+            info!("Disable EntryNotifierImpl");
             None
         };
 
@@ -117,6 +123,7 @@ impl GeyserPluginService {
             || transaction_notifications_enabled
             || entry_notifications_enabled
         {
+            info!("Starting SlotStatusObserver");
             let slot_status_notifier = SlotStatusNotifierImpl::new(plugin_manager.clone());
             let slot_status_notifier = Arc::new(RwLock::new(slot_status_notifier));
             (
@@ -129,6 +136,7 @@ impl GeyserPluginService {
                 )))),
             )
         } else {
+            info!("Disable SlotStatusObserver");
             (None, None)
         };
 
