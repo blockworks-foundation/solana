@@ -159,14 +159,19 @@ impl OptimisticallyConfirmedBankTracker {
         slot_notification_subscribers: &Option<Arc<RwLock<Vec<SlotNotificationSender>>>>,
         notification: SlotNotification,
     ) {
+
+        inc_new_counter_info!("slot_notification-total", 1);
         if let Some(slot_notification_subscribers) = slot_notification_subscribers {
             for sender in slot_notification_subscribers.read().unwrap().iter() {
                 match sender.send(notification.clone()) {
-                    Ok(_) => {}
-                    Err(err) => {
+                    Ok(_) => {
+                        inc_new_counter_info!("slot_notification-sent", 1);
+                    }
+                    Err(_err) => {
+                        inc_new_counter_info!("slot_notification-failed", 1);
                         info!(
-                            "Failed to send notification {:?}, error: {:?}",
-                            notification, err
+                            "Failed to send notification {:?}, error: disconnected",
+                            notification
                         );
                     }
                 }

@@ -82,6 +82,9 @@ impl GeyserPluginService {
         let transaction_notifications_enabled = plugin_manager.transaction_notifications_enabled();
         let entry_notifications_enabled = plugin_manager.entry_notifications_enabled();
         let plugin_manager = Arc::new(RwLock::new(plugin_manager));
+        debug!(
+            "account_data_notifications_enabled: {}, transaction_notifications_enabled: {}, entry_notifications_enabled: {}",
+            account_data_notifications_enabled, transaction_notifications_enabled, entry_notifications_enabled);
 
         let accounts_update_notifier: Option<AccountsUpdateNotifier> =
             if account_data_notifications_enabled {

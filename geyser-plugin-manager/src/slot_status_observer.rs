@@ -1,3 +1,4 @@
+use log::{info, warn};
 use {
     crate::slot_status_notifier::SlotStatusNotifier,
     crossbeam_channel::Receiver,
@@ -50,30 +51,38 @@ impl SlotStatusObserver {
         Builder::new()
             .name("solBankNotif".to_string())
             .spawn(move || {
+                info!("solBankNotif task started");
                 while !exit.load(Ordering::Relaxed) {
-                    if let Ok(slot) = bank_notification_receiver.recv() {
-                        match slot {
-                            SlotNotification::OptimisticallyConfirmed(slot) => {
-                                slot_status_notifier
-                                    .read()
-                                    .unwrap()
-                                    .notify_slot_confirmed(slot, None);
+                    match bank_notification_receiver.recv() {
+                        Ok(slot) => {
+                            match slot {
+                                SlotNotification::OptimisticallyConfirmed(slot) => {
+                                    slot_status_notifier
+                                        .read()
+                                        .unwrap()
+                                        .notify_slot_confirmed(slot, None);
+                                }
+                                SlotNotification::Frozen((slot, parent)) => {
+                                    slot_status_notifier
+                                        .read()
+                                        .unwrap()
+                                        .notify_slot_processed(slot, Some(parent));
+                                }
+                                SlotNotification::Root((slot, parent)) => {
+                                    slot_status_notifier
+                                        .read()
+                                        .unwrap()
+                                        .notify_slot_rooted(slot, Some(parent));
+                                }
                             }
-                            SlotNotification::Frozen((slot, parent)) => {
-                                slot_status_notifier
-                                    .read()
-                                    .unwrap()
-                                    .notify_slot_processed(slot, Some(parent));
-                            }
-                            SlotNotification::Root((slot, parent)) => {
-                                slot_status_notifier
-                                    .read()
-                                    .unwrap()
-                                    .notify_slot_rooted(slot, Some(parent));
-                            }
+                        }
+                        Err(_recv_error) => {
+                            // A message could not be received because the channel is empty and disconnected.
+                            warn!("solBankNotif channel disconnected");
                         }
                     }
                 }
+                info!("solBankNotif task look ended");
             })
             .unwrap()
     }
