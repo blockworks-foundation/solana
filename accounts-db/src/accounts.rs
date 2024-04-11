@@ -1079,11 +1079,14 @@ impl Accounts {
                 |some_account_tuple| {
                     Self::load_while_filtering(&mut collector, some_account_tuple, |account| {
                         if just_get_program_ids {
-                            Self::accumulate_and_check_scan_result_size(
+                            if Self::accumulate_and_check_scan_result_size(
                                 &sum,
                                 account,
                                 &byte_limit_for_scan,
-                            )
+                            ) {
+                                config.abort();
+                            }
+                            true
                         } else {
                             let use_account = filter(account);
                             if use_account

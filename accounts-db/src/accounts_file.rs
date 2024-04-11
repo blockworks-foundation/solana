@@ -7,7 +7,12 @@ use {
         storable_accounts::StorableAccounts,
         tiered_storage::error::TieredStorageError,
     },
-    solana_sdk::{account::ReadableAccount, clock::Slot, hash::Hash, pubkey::Pubkey},
+    solana_sdk::{
+        account::{AccountMetaData, ReadableAccount},
+        clock::Slot,
+        hash::Hash,
+        pubkey::Pubkey,
+    },
     std::{
         borrow::Borrow,
         mem,
@@ -110,6 +115,12 @@ impl AccountsFile {
     pub fn get_account(&self, index: usize) -> Option<(StoredAccountMeta<'_>, usize)> {
         match self {
             Self::AppendVec(av) => av.get_account(index),
+        }
+    }
+
+    pub fn get_account_meta(&self, index: usize) -> Option<AccountMetaData> {
+        match self {
+            Self::AppendVec(av) => av.get_account_meta_data(index),
         }
     }
 

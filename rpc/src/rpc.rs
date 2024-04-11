@@ -7,6 +7,7 @@ use {
     base64::{prelude::BASE64_STANDARD, Engine},
     bincode::{config::Options, serialize},
     crossbeam_channel::{unbounded, Receiver, Sender},
+    itertools::Itertools,
     jsonrpc_core::{futures::future, types::error, BoxFuture, Error, Metadata, Result},
     jsonrpc_derive::rpc,
     solana_account_decoder::{
@@ -486,11 +487,8 @@ impl JsonRpcRequestProcessor {
             min_context_slot,
         })?;
         let encoding = encoding.unwrap_or(UiAccountEncoding::Binary);
-        let just_get_program_ids = data_slice_config
-            .clone()
-            .map(|x| x.length == 0)
-            .unwrap_or_default()
-            && filters.len() == 0;
+        let just_get_program_ids =
+            data_slice_config.map(|x| x.length == 0).unwrap_or_default() && filters.is_empty();
 
         optimize_filters(&mut filters);
         let keyed_accounts = {
@@ -526,6 +524,19 @@ impl JsonRpcRequestProcessor {
             true => OptionalContext::Context(new_response(&bank, accounts)),
             false => OptionalContext::NoContext(accounts),
         })
+    }
+
+    pub fn get_program_addresses(
+        &self,
+        program_id: &Pubkey,
+        commitment: Option<CommitmentConfig>,
+    ) -> Result<Vec<Pubkey>> {
+        let bank = self.get_bank_with_config(RpcContextConfig {
+            commitment,
+            min_context_slot: None,
+        })?;
+
+        Ok(self.get_program_addresses_for_bank(&bank, program_id)?)
     }
 
     pub async fn get_inflation_reward(
@@ -2031,7 +2042,11 @@ impl JsonRpcRequestProcessor {
                         // zero-lamport AccountSharedData::Default() after being wiped and reinitialized in later
                         // updates. We include the redundant filters here to avoid returning these
                         // accounts.
-                        account.owner() == program_id && filter_closure(account)
+                        if just_get_program_ids {
+                            true
+                        } else {
+                            account.owner() == program_id && filter_closure(account)
+                        }
                     },
                     &ScanConfig::default(),
                     bank.byte_limit_for_scans(),
@@ -2047,6 +2062,48 @@ impl JsonRpcRequestProcessor {
                 .map_err(|e| RpcCustomError::ScanError {
                     message: e.to_string(),
                 })?)
+        }
+    }
+
+    fn get_program_addresses_for_bank(
+        &self,
+        bank: &Bank,
+        program_id: &Pubkey,
+    ) -> RpcCustomResult<Vec<Pubkey>> {
+        if self
+            .config
+            .account_indexes
+            .contains(&AccountIndex::ProgramId)
+        {
+            if !self.config.account_indexes.include_key(program_id) {
+                return Err(RpcCustomError::KeyExcludedFromSecondaryIndex {
+                    index_key: program_id.to_string(),
+                });
+            }
+            Ok(bank
+                .get_filtered_indexed_accounts(
+                    &IndexKey::ProgramId(*program_id),
+                    |account| {
+                        // The program-id account index checks for Account owner on inclusion. However, due
+                        // to the current AccountsDb implementation, an account may remain in storage as a
+                        // zero-lamport AccountSharedData::Default() after being wiped and reinitialized in later
+                        // updates. We include the redundant filters here to avoid returning these
+                        // accounts.
+                        account.owner() == program_id
+                    },
+                    &ScanConfig::default(),
+                    bank.byte_limit_for_scans(),
+                    true,
+                )
+                .map(|x| x.iter().map(|y| y.0).collect_vec())
+                .map_err(|e| RpcCustomError::ScanError {
+                    message: e.to_string(),
+                })?)
+        } else {
+            // this path does not need to provide a mb limit because we only want to support secondary indexes
+            Err(RpcCustomError::KeyExcludedFromSecondaryIndex {
+                index_key: program_id.to_string(),
+            })
         }
     }
 
@@ -3133,6 +3190,14 @@ pub mod rpc_accounts_scan {
             config: Option<RpcProgramAccountsConfig>,
         ) -> Result<OptionalContext<Vec<RpcKeyedAccount>>>;
 
+        #[rpc(meta, name = "getProgramAddresses")]
+        fn get_program_addresses(
+            &self,
+            meta: Self::Metadata,
+            program_id_str: String,
+            commitment: Option<CommitmentConfig>,
+        ) -> Result<Vec<Pubkey>>;
+
         #[rpc(meta, name = "getLargestAccounts")]
         fn get_largest_accounts(
             &self,
@@ -3211,6 +3276,20 @@ pub mod rpc_accounts_scan {
                 verify_filter(filter)?;
             }
             meta.get_program_accounts(&program_id, config, filters, with_context)
+        }
+
+        fn get_program_addresses(
+            &self,
+            meta: Self::Metadata,
+            program_id_str: String,
+            commitment: Option<CommitmentConfig>,
+        ) -> Result<Vec<Pubkey>> {
+            debug!(
+                "get_program_accounts rpc request received: {:?}",
+                program_id_str
+            );
+            let program_id = verify_pubkey(&program_id_str)?;
+            meta.get_program_addresses(&program_id, commitment)
         }
 
         fn get_largest_accounts(

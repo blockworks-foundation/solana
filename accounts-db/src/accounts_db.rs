@@ -82,7 +82,7 @@ use {
     solana_measure::{measure::Measure, measure_us},
     solana_rayon_threadlimit::get_thread_count,
     solana_sdk::{
-        account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
+        account::{Account, AccountMetaData, AccountSharedData, ReadableAccount, WritableAccount},
         clock::{BankId, Epoch, Slot},
         epoch_schedule::EpochSchedule,
         genesis_config::{ClusterType, GenesisConfig},
@@ -849,6 +849,33 @@ impl<'a> LoadedAccountAccessor<'a> {
         }
     }
 
+    pub fn get_account_meta(&mut self) -> Option<AccountMetaData> {
+        match self {
+            LoadedAccountAccessor::Cached(cached_account) => {
+                let cached_account: Cow<'a, CachedAccount> = cached_account.take().expect(
+                    "Cache flushed/purged should be handled before trying to fetch account",
+                );
+                Some(AccountMetaData {
+                    lamports: cached_account.account.lamports(),
+                    owner: *cached_account.account.owner(),
+                    executable: cached_account.account.executable(),
+                    rent_epoch: cached_account.account.rent_epoch(),
+                    space: cached_account.account.data().len(),
+                })
+            }
+            LoadedAccountAccessor::Stored(maybe_storage_entry) => {
+                // storage entry may not be present if slot was cleaned up in
+                // between reading the accounts index and calling this function to
+                // get account meta from the storage entry here
+                maybe_storage_entry
+                    .as_ref()
+                    .and_then(|(storage_entry, offset)| {
+                        storage_entry.get_stored_account_meta_data(*offset)
+                    })
+            }
+        }
+    }
+
     fn account_matches_owners(&self, owners: &[Pubkey]) -> Result<usize, MatchAccountOwnerError> {
         match self {
             LoadedAccountAccessor::Cached(cached_account) => cached_account
@@ -1139,6 +1166,10 @@ impl AccountStorageEntry {
 
     fn get_stored_account_meta(&self, offset: usize) -> Option<StoredAccountMeta> {
         Some(self.accounts.get_account(offset)?.0)
+    }
+
+    fn get_stored_account_meta_data(&self, offset: usize) -> Option<AccountMetaData> {
+        self.accounts.get_account_meta(offset)
     }
 
     fn add_account(&self, num_bytes: usize) {
@@ -4970,8 +5001,17 @@ impl AccountsDb {
             index_key,
             |pubkey, (account_info, slot)| {
                 if just_get_program_ids {
-                    let dummy_shared_data = AccountSharedData::new(0, 0, key);
-                    scan_func(Some((pubkey, dummy_shared_data, slot)))
+                    let account_slot = self
+                        .get_account_accessor(slot, pubkey, &account_info.storage_location())
+                        .get_account_meta()
+                        .map(|x| {
+                            (
+                                pubkey,
+                                AccountSharedData::new(x.lamports, x.space, &x.owner),
+                                slot,
+                            )
+                        });
+                    scan_func(account_slot)
                 } else {
                     let account_slot = self
                         .get_account_accessor(slot, pubkey, &account_info.storage_location())
@@ -12175,6 +12215,7 @@ pub mod tests {
                         found_accounts.insert(*account.unwrap().0);
                     },
                     &ScanConfig::default(),
+                    false,
                 )
                 .unwrap();
             assert!(!used_index);
@@ -12195,6 +12236,7 @@ pub mod tests {
                         found_accounts.insert(*account.unwrap().0);
                     },
                     &ScanConfig::default(),
+                    false,
                 )
                 .unwrap();
             assert!(used_index);
