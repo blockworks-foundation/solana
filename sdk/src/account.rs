@@ -225,7 +225,7 @@ pub trait ReadableAccount: Sized {
     fn to_account_meta(&self) -> AccountMetaData {
         AccountMetaData {
             lamports: self.lamports(),
-            owner: self.owner().clone(),
+            owner: *self.owner(),
             rent_epoch: self.rent_epoch(),
             executable: self.executable(),
             space: self.data().len(),

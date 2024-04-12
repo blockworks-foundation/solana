@@ -79,14 +79,18 @@ impl GeyserPluginService {
 
         let account_data_notifications_enabled =
             plugin_manager.account_data_notifications_enabled();
+
+        let skip_statup_notifications = plugin_manager.skip_statup_notifications();
         let transaction_notifications_enabled = plugin_manager.transaction_notifications_enabled();
         let entry_notifications_enabled = plugin_manager.entry_notifications_enabled();
         let plugin_manager = Arc::new(RwLock::new(plugin_manager));
 
         let accounts_update_notifier: Option<AccountsUpdateNotifier> =
             if account_data_notifications_enabled {
-                let accounts_update_notifier =
-                    AccountsUpdateNotifierImpl::new(plugin_manager.clone());
+                let accounts_update_notifier = AccountsUpdateNotifierImpl::new(
+                    plugin_manager.clone(),
+                    skip_statup_notifications,
+                );
                 Some(Arc::new(RwLock::new(accounts_update_notifier)))
             } else {
                 None
