@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::{AtomicU64, Ordering};
+use itertools::Itertools;
 use log::info;
 use {
     crate::{
@@ -13,6 +14,7 @@ use {
     },
     std::collections::{HashMap, HashSet},
 };
+use solana_sdk::signature::Signer;
 use crate::accounts_update_notifier_interface::{AccountsUpdateNotifier, AccountsUpdateNotifierInterface};
 
 #[derive(Default)]
@@ -133,31 +135,40 @@ impl AccountsDb {
             .unwrap();
 
 
-        let mut batch: Vec<StoredAccountMeta> = Vec::with_capacity(1000);
-
         let mut measure_notify = Measure::start("accountsdb-plugin-notifying-accounts");
         let local_write_version = 0;
-        for (_, mut account) in accounts_to_stream.drain() {
-            // We do not need to rely on the specific write_version read from the append vec.
-            // So, overwrite the write_version with something that works.
-            // 'accounts_to_stream' is already a hashmap, so there is already only entry per pubkey.
-            // write_version is only used to order multiple entries with the same pubkey, so it doesn't matter what value it gets here.
-            // Passing 0 for everyone's write_version is sufficiently correct.
-            let meta = StoredMeta {
-                write_version_obsolete: local_write_version,
-                ..*account.meta()
-            };
-            account.set_meta(&meta);
-            let mut measure_pure_notify = Measure::start("accountsdb-plugin-notifying-accounts");
-            notifier.notify_account_restore_from_snapshot(slot, &[&account]);
-            measure_pure_notify.stop();
+        let mut buffer = Vec::with_capacity(1000);
+        'drain: for acc in accounts_to_stream.drain() {
+            if buffer.len() < 1000 {
+                buffer.push(acc);
+                continue 'drain;
+            } else {
+                let mut mapped = Vec::new();
+                for (pubkey, mut account) in buffer.drain(..) { // We do not need to rely on the specific write_version read from the append vec.
+                    // So, overwrite the write_version with something that works.
+                    // 'accounts_to_stream' is already a hashmap, so there is already only entry per pubkey.
+                    // write_version is only used to order multiple entries with the same pubkey, so it doesn't matter what value it gets here.
+                    // Passing 0 for everyone's write_version is sufficiently correct.
+                    let meta = StoredMeta {
+                        write_version_obsolete: local_write_version,
+                        ..*account.meta()
+                    };
+                    account.set_meta(&meta);
+                    let mut measure_pure_notify = Measure::start("accountsdb-plugin-notifying-accounts");
+                    // notifier.notify_account_restore_from_snapshot(slot, &[&account]);
+                    mapped.push(&account);
+                    measure_pure_notify.stop();
 
-            notify_stats.total_pure_notify += measure_pure_notify.as_us() as usize;
+                    notify_stats.total_pure_notify += measure_pure_notify.as_us() as usize;
 
-            let mut measure_bookkeep = Measure::start("accountsdb-plugin-notifying-bookeeeping");
-            notified_accounts.insert(*account.pubkey());
-            measure_bookkeep.stop();
-            notify_stats.total_pure_bookeeping += measure_bookkeep.as_us() as usize;
+                    let mut measure_bookkeep = Measure::start("accountsdb-plugin-notifying-bookeeeping");
+                    notified_accounts.insert(*account.pubkey());
+                    measure_bookkeep.stop();
+                    notify_stats.total_pure_bookeeping += measure_bookkeep.as_us() as usize;
+                } // -- END batch items
+
+                notifier.notify_account_restore_from_snapshot(slot, &mapped);
+            }
         }
         notify_stats.notified_accounts += accounts_to_stream.len();
         measure_notify.stop();
