@@ -132,6 +132,9 @@ impl AccountsDb {
             .read()
             .unwrap();
 
+
+        let mut batch: Vec<StoredAccountMeta> = Vec::with_capacity(1000);
+
         let mut measure_notify = Measure::start("accountsdb-plugin-notifying-accounts");
         let local_write_version = 0;
         for (_, mut account) in accounts_to_stream.drain() {
@@ -146,7 +149,7 @@ impl AccountsDb {
             };
             account.set_meta(&meta);
             let mut measure_pure_notify = Measure::start("accountsdb-plugin-notifying-accounts");
-            notifier.notify_account_restore_from_snapshot(slot, &account);
+            notifier.notify_account_restore_from_snapshot(slot, &[&account]);
             measure_pure_notify.stop();
 
             notify_stats.total_pure_notify += measure_pure_notify.as_us() as usize;
@@ -160,7 +163,41 @@ impl AccountsDb {
         measure_notify.stop();
         notify_stats.elapsed_notifying_us += measure_notify.as_us() as usize;
     }
+
 }
+
+
+pub struct BatchAccountNotfier {
+
+
+}
+
+impl BatchAccountNotfier {
+    pub fn flush(&self) {
+        println!("flush");
+    }
+}
+
+impl Debug for crate::accounts_db::geyser_plugin_utils::BatchAccountNotfier {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MyAccountNotfier")
+    }
+}
+
+impl AccountsUpdateNotifierInterface for crate::accounts_db::geyser_plugin_utils::BatchAccountNotfier {
+    fn notify_account_update(&self, slot: Slot, account: &AccountSharedData, txn: &Option<&SanitizedTransaction>, pubkey: &Pubkey, write_version: u64) {
+        todo!()
+    }
+
+    fn notify_account_restore_from_snapshot(&self, slot: Slot, account: &[&StoredAccountMeta]) {
+        // self.counter.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn notify_end_of_restore_from_snapshot(&self) {
+        // println!("notify_end_of_restore_from_snapshot");
+    }
+}
+
 
 
 impl AccountsDb {
@@ -457,7 +494,7 @@ impl AccountsUpdateNotifierInterface for MyAccountNotfier {
         todo!()
     }
 
-    fn notify_account_restore_from_snapshot(&self, slot: Slot, account: &StoredAccountMeta) {
+    fn notify_account_restore_from_snapshot(&self, slot: Slot, account: &[&StoredAccountMeta]) {
         self.counter.fetch_add(1, Ordering::Relaxed);
     }
 

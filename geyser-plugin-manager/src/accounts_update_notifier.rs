@@ -37,15 +37,20 @@ impl AccountsUpdateNotifierInterface for AccountsUpdateNotifierImpl {
         if let Some(account_info) =
             self.accountinfo_from_shared_account_data(account, txn, pubkey, write_version)
         {
-            self.notify_plugins_of_account_update(account_info, slot, false);
+            self.notify_plugins_of_account_update(&[account_info], slot, false);
         }
     }
 
-    fn notify_account_restore_from_snapshot(&self, slot: Slot, account: &StoredAccountMeta) {
+    fn notify_account_restore_from_snapshot(&self, slot: Slot, accounts_batch: &[&StoredAccountMeta]) {
         let mut measure_all = Measure::start("geyser-plugin-notify-account-restore-all");
         let mut measure_copy = Measure::start("geyser-plugin-copy-stored-account-info");
 
-        let account = self.accountinfo_from_stored_account_meta(account);
+
+        let mapped_batch: Vec<ReplicaAccountInfoV3> = accounts_batch.iter().map(|x| {
+            self.accountinfo_from_stored_account_meta(x).unwrap()
+        }).collect();
+
+        // let account = self.accountinfo_from_stored_account_meta(accounts_batch);
         measure_copy.stop();
 
         inc_new_counter_debug!(
@@ -55,9 +60,11 @@ impl AccountsUpdateNotifierInterface for AccountsUpdateNotifierImpl {
             100000
         );
 
-        if let Some(account_info) = account {
-            self.notify_plugins_of_account_update(account_info, slot, true);
-        }
+        self.notify_plugins_of_account_update(&mapped_batch, slot, true);
+
+        // if let Some(account_info) = account {
+        //     self.notify_plugins_of_account_update(account_info, slot, true);
+        // }
         measure_all.stop();
 
         inc_new_counter_debug!(
@@ -142,7 +149,7 @@ impl AccountsUpdateNotifierImpl {
 
     fn notify_plugins_of_account_update(
         &self,
-        account: ReplicaAccountInfoV3,
+        accounts_batch: &[ReplicaAccountInfoV3],
         slot: Slot,
         is_startup: bool,
     ) {
@@ -156,29 +163,35 @@ impl AccountsUpdateNotifierImpl {
         }
         for plugin in plugin_manager.plugins.iter() {
             let mut measure = Measure::start("geyser-plugin-update-account");
-            match plugin.update_account(
-                ReplicaAccountInfoVersions::V0_0_3(&account),
-                slot,
-                is_startup,
-            ) {
-                Err(err) => {
-                    error!(
+
+            for account in accounts_batch {
+
+                match plugin.update_account(
+                    ReplicaAccountInfoVersions::V0_0_3(&account),
+                    slot,
+                    is_startup,
+                ) {
+                    Err(err) => {
+                        error!(
                         "Failed to update account {} at slot {}, error: {} to plugin {}",
                         bs58::encode(account.pubkey).into_string(),
                         slot,
                         err,
                         plugin.name()
                     )
-                }
-                Ok(_) => {
-                    trace!(
+                    }
+                    Ok(_) => {
+                        trace!(
                         "Successfully updated account {} at slot {} to plugin {}",
                         bs58::encode(account.pubkey).into_string(),
                         slot,
                         plugin.name()
                     );
+                    }
                 }
+
             }
+
             measure.stop();
             inc_new_counter_debug!(
                 "geyser-plugin-update-account-us",
