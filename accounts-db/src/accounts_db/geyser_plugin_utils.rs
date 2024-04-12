@@ -139,6 +139,8 @@ impl AccountsDb {
             .unwrap();
 
 
+        let mut batcher = BatchAccountNotfier {};
+
         let mut measure_notify = Measure::start("accountsdb-plugin-notifying-accounts");
         let local_write_version = 0;
         let mut buffer = Vec::with_capacity(1000);
@@ -165,6 +167,7 @@ impl AccountsDb {
                     let pubkey = *account.pubkey();
                     let account = Self::mapmeta(account);
                     let mut measure_pure_notify = Measure::start("accountsdb-plugin-notifying-accounts");
+                    // batcher.insert();
                     // notifier.notify_account_restore_from_snapshot(slot, &[&account]);
                     mapped.push(account);
                     measure_pure_notify.stop();
@@ -176,7 +179,6 @@ impl AccountsDb {
                     notified_accounts.insert(pubkey);
                     measure_bookkeep.stop();
                     notify_stats.total_pure_bookeeping += measure_bookkeep.as_us() as usize;
-                    println!("ADD ITEM");
                 } // -- END batch items
 
 
@@ -184,6 +186,9 @@ impl AccountsDb {
                 notifier.notify_account_restore_from_snapshot(slot, &mapped2); // TODO check if this allocates
             }
         }
+
+        batcher.flush();
+
         notify_stats.notified_accounts += accounts_to_stream.len();
         measure_notify.stop();
         notify_stats.elapsed_notifying_us += measure_notify.as_us() as usize;
@@ -209,6 +214,10 @@ pub struct BatchAccountNotfier {
 }
 
 impl BatchAccountNotfier {
+    pub fn insert(&self) {
+        println!("insert");
+    }
+
     pub fn flush(&self) {
         println!("flush");
     }
