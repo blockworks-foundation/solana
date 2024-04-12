@@ -1,3 +1,4 @@
+use std::time::Instant;
 /// Module responsible for notifying plugins of account updates
 use {
     crate::geyser_plugin_manager::GeyserPluginManager,
@@ -54,8 +55,6 @@ impl AccountsUpdateNotifierInterface for AccountsUpdateNotifierImpl {
             100000
         );
 
-        todo!();
-        println!(">>>>>> notify about account: {:?}", account);
         if let Some(account_info) = account {
             self.notify_plugins_of_account_update(account_info, slot, true);
         }
@@ -147,6 +146,8 @@ impl AccountsUpdateNotifierImpl {
         slot: Slot,
         is_startup: bool,
     ) {
+        println!("Geyser Notify CALLED");
+        let started_at = Instant::now();
         let mut measure2 = Measure::start("geyser-plugin-notify_plugins_of_account_update");
         let plugin_manager = self.plugin_manager.read().unwrap();
 

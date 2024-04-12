@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::{AtomicU64, Ordering};
+use log::info;
 use {
     crate::{
         account_storage::meta::{StoredAccountMeta, StoredMeta},
@@ -12,7 +13,7 @@ use {
     },
     std::collections::{HashMap, HashSet},
 };
-use crate::accounts_update_notifier_interface::AccountsUpdateNotifierInterface;
+use crate::accounts_update_notifier_interface::{AccountsUpdateNotifier, AccountsUpdateNotifierInterface};
 
 #[derive(Default)]
 pub struct GeyserPluginNotifyAtSnapshotRestoreStats {
@@ -161,6 +162,13 @@ impl AccountsDb {
     }
 }
 
+
+impl AccountsDb {
+    pub fn set_geyser_plugin_notifer(&mut self, notifier: Option<AccountsUpdateNotifier>) {
+        self.accounts_update_notifier = notifier;
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use std::sync::atomic::AtomicU64;
@@ -186,11 +194,11 @@ pub mod tests {
     };
     use crate::accounts_db::geyser_plugin_utils::MyAccountNotfier;
 
-    impl AccountsDb {
-        pub fn set_geyser_plugin_notifer(&mut self, notifier: Option<AccountsUpdateNotifier>) {
-            self.accounts_update_notifier = notifier;
-        }
-    }
+    // impl AccountsDb {
+    //     pub fn set_geyser_plugin_notifer(&mut self, notifier: Option<AccountsUpdateNotifier>) {
+    //         self.accounts_update_notifier = notifier;
+    //     }
+    // }
 
     #[derive(Debug, Default)]
     struct GeyserTestPlugin {
@@ -278,7 +286,23 @@ pub mod tests {
     }
 
     #[test]
-    fn test_notify_account_restore_from_snapshot_once_across_slots() {
+    fn zzz_test_notify_account_restore_from_snapshot_bench() {
+        // // Initialize empty manager
+        // let plugin_manager = Arc::new(RwLock::new(GeyserPluginManager::new()));
+        // let mut plugin_manager_lock = plugin_manager.write().unwrap();
+        //
+        // // Load two plugins
+        // // First
+        // let (mut plugin, lib, config) = dummy_plugin_and_library(TestPlugin, TESTPLUGIN_CONFIG);
+        // plugin.on_load(config).unwrap();
+        // plugin_manager_lock.plugins.push(plugin);
+        // plugin_manager_lock.libs.push(lib);
+        //
+        //
+        // let accounts_update_notifier =
+        //     AccountsUpdateNotifierImpl::new(plugin_manager.clone());
+
+
         let mut accounts = AccountsDb::new_single_for_tests();
         // Account with key1 is updated twice in two different slots -- should only get notified once.
         // Account with key2 is updated slot0, should get notified once
@@ -424,7 +448,7 @@ pub struct MyAccountNotfier {
 
 impl Debug for MyAccountNotfier {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        write!(f, "MyAccountNotfier")
     }
 }
 
@@ -438,7 +462,7 @@ impl AccountsUpdateNotifierInterface for MyAccountNotfier {
     }
 
     fn notify_end_of_restore_from_snapshot(&self) {
-        todo!()
+        println!("notify_end_of_restore_from_snapshot");
     }
 }
 

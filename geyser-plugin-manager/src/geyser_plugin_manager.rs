@@ -415,6 +415,7 @@ pub(crate) fn load_plugin_from_config(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicU64;
     use {
         crate::geyser_plugin_manager::{
             GeyserPluginManager, LoadedGeyserPlugin, TESTPLUGIN2_CONFIG, TESTPLUGIN_CONFIG,
@@ -423,6 +424,9 @@ mod tests {
         solana_geyser_plugin_interface::geyser_plugin_interface::GeyserPlugin,
         std::sync::{Arc, RwLock},
     };
+    use solana_accounts_db::accounts_db::AccountsDb;
+    use solana_sdk::account::{AccountSharedData, ReadableAccount};
+    use crate::accounts_update_notifier::AccountsUpdateNotifierImpl;
 
     pub(super) fn dummy_plugin_and_library<P: GeyserPlugin>(
         plugin: P,
@@ -538,4 +542,62 @@ mod tests {
         assert!(unload_result.is_ok());
         assert_eq!(plugin_manager_lock.plugins.len(), 0);
     }
+
+    #[test]
+    fn test_notify_account_restore_from_snapshot_bench() {
+        // Initialize empty manager
+        let plugin_manager = Arc::new(RwLock::new(GeyserPluginManager::new()));
+
+
+        {
+            let mut plugin_manager_lock = plugin_manager.write().unwrap();
+
+            let (mut plugin, lib, config) = dummy_plugin_and_library(TestPlugin, TESTPLUGIN_CONFIG);
+            plugin.on_load(config).unwrap();
+            plugin_manager_lock.plugins.push(plugin);
+            plugin_manager_lock.libs.push(lib);
+        }
+
+        let accounts_update_notifier =
+            Arc::new(RwLock::new(AccountsUpdateNotifierImpl::new(plugin_manager.clone())));
+
+
+        let mut accounts = AccountsDb::new_single_for_tests();
+        // Account with key1 is updated twice in two different slots -- should only get notified once.
+        // Account with key2 is updated slot0, should get notified once
+        // Account with key3 is updated in slot1, should get notified once
+        let key1 = solana_sdk::pubkey::new_rand();
+        let mut account1_lamports: u64 = 1;
+        let account1 =
+            AccountSharedData::new(account1_lamports, 1, AccountSharedData::default().owner());
+        let slot0 = 0;
+        accounts.store_uncached(slot0, &[(&key1, &account1)]);
+
+        let key2 = solana_sdk::pubkey::new_rand();
+        let account2_lamports: u64 = 200;
+        let account2 =
+            AccountSharedData::new(account2_lamports, 1, AccountSharedData::default().owner());
+        accounts.store_uncached(slot0, &[(&key2, &account2)]);
+
+        account1_lamports = 2;
+        let slot1 = 1;
+        let account1 = AccountSharedData::new(account1_lamports, 1, account1.owner());
+        accounts.store_uncached(slot1, &[(&key1, &account1)]);
+
+        let key3 = solana_sdk::pubkey::new_rand();
+        let account3_lamports: u64 = 300;
+        let account3 =
+            AccountSharedData::new(account3_lamports, 1, AccountSharedData::default().owner());
+        accounts.store_uncached(slot1, &[(&key3, &account3)]);
+
+
+        // let notifier = Arc::new(RwLock::new(notifier));
+        accounts.set_geyser_plugin_notifer(Some(accounts_update_notifier.clone()));
+
+        accounts.notify_account_restore_from_snapshot();
+
+        // let notifier = notifier.write().unwrap();
+    }
+
+
 }
