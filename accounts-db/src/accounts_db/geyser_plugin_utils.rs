@@ -147,13 +147,14 @@ impl AccountsDb {
         let mut remaining = accounts_to_stream.len();
         'drain: for acc in accounts_to_stream.drain() {
             remaining -= 1;
+            println!("drain... remaining: {}", remaining);
             if buffer.len() < 1000 {
                 buffer.push(acc);
                 if remaining > 0 {
                     continue 'drain;
                 }
             } else {
-                let mut mapped: Vec<StoredAccountMeta> = Vec::new();
+                let mut mapped: Vec<StoredAccountMeta> = Vec::with_capacity(1000);
                 for (_pubkey, mut account) in buffer.drain(..) { // We do not need to rely on the specific write_version read from the append vec.
                     // So, overwrite the write_version with something that works.
                     // 'accounts_to_stream' is already a hashmap, so there is already only entry per pubkey.
@@ -182,8 +183,7 @@ impl AccountsDb {
                 } // -- END batch items
 
 
-                let mapped2: Vec<&StoredAccountMeta> = mapped.iter().map(|x| x).collect_vec();
-                notifier.notify_account_restore_from_snapshot(slot, &mapped2); // TODO check if this allocates
+                notifier.notify_account_restore_from_snapshot(slot, &mapped); // TODO check if this allocates
             }
         }
 
@@ -234,7 +234,7 @@ impl AccountsUpdateNotifierInterface for crate::accounts_db::geyser_plugin_utils
         todo!()
     }
 
-    fn notify_account_restore_from_snapshot(&self, slot: Slot, account: &[&StoredAccountMeta]) {
+    fn notify_account_restore_from_snapshot(&self, slot: Slot, account: &[StoredAccountMeta]) {
         // self.counter.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -539,7 +539,7 @@ impl AccountsUpdateNotifierInterface for MyAccountNotfier {
         todo!()
     }
 
-    fn notify_account_restore_from_snapshot(&self, slot: Slot, account: &[&StoredAccountMeta]) {
+    fn notify_account_restore_from_snapshot(&self, slot: Slot, account: &[StoredAccountMeta]) {
         self.counter.fetch_add(1, Ordering::Relaxed);
     }
 

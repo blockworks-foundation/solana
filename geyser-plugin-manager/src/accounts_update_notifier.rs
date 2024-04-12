@@ -42,7 +42,7 @@ impl AccountsUpdateNotifierInterface for AccountsUpdateNotifierImpl {
         }
     }
 
-    fn notify_account_restore_from_snapshot(&self, slot: Slot, accounts_batch: &[&StoredAccountMeta]) {
+    fn notify_account_restore_from_snapshot(&self, slot: Slot, accounts_batch: &[StoredAccountMeta]) {
         let mut measure_all = Measure::start("geyser-plugin-notify-account-restore-all");
         let mut measure_copy = Measure::start("geyser-plugin-copy-stored-account-info");
 
