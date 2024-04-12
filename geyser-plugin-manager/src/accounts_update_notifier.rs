@@ -154,7 +154,6 @@ impl AccountsUpdateNotifierImpl {
         slot: Slot,
         is_startup: bool,
     ) {
-        println!("Geyser Notify CALLED with batch size {}, is_startup={}", accounts_batch.len(), is_startup);
         let started_at = Instant::now();
         let mut measure2 = Measure::start("geyser-plugin-notify_plugins_of_account_update");
         let plugin_manager = self.plugin_manager.read().unwrap();
@@ -165,7 +164,7 @@ impl AccountsUpdateNotifierImpl {
         for plugin in plugin_manager.plugins.iter() {
             let mut measure = Measure::start("geyser-plugin-update-account");
 
-            info!("Proccess account update batch ({}) for plugin {}", accounts_batch.len(), plugin.name());
+            debug!("Proccess account update batch ({}) for plugin {}", accounts_batch.len(), plugin.name());
             for account in accounts_batch {
 
                 match plugin.update_account(
@@ -209,5 +208,9 @@ impl AccountsUpdateNotifierImpl {
             100000,
             100000
         );
+        debug!(
+            "Processed account update batch ({}) for all plugins in {}us",
+            accounts_batch.len(),
+            started_at.elapsed().as_micros());
     }
 }
