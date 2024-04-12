@@ -54,6 +54,8 @@ impl AccountsUpdateNotifierInterface for AccountsUpdateNotifierImpl {
             100000
         );
 
+        todo!();
+        println!(">>>>>> notify about account: {:?}", account);
         if let Some(account_info) = account {
             self.notify_plugins_of_account_update(account_info, slot, true);
         }
