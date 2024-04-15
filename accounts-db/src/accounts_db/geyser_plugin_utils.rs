@@ -138,17 +138,18 @@ impl AccountsDb {
             .read()
             .unwrap();
 
+        const BATCH_SIZE: usize = 1000;
 
+        // NOT USED
         let mut batcher = BatchAccountNotfier {};
 
         let mut measure_notify = Measure::start("accountsdb-plugin-notifying-accounts");
         let local_write_version = 0; // TODO restore
-        let mut buffer = Vec::with_capacity(1000);
-        // let mut mapped: Vec<StoredAccountMeta> = Vec::with_capacity(1000);
+        let mut buffer = Vec::with_capacity(BATCH_SIZE);
         let mut remaining = accounts_to_stream.len();
         'drain: for acc in accounts_to_stream.drain() {
             remaining -= 1;
-            if buffer.len() < 1000 {
+            if buffer.len() < BATCH_SIZE {
                 buffer.push(acc);
                 if remaining > 0 {
                     continue 'drain;
