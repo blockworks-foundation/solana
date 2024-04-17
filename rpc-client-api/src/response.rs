@@ -3,11 +3,7 @@ use {
     serde::{Deserialize, Deserializer, Serialize, Serializer},
     solana_account_decoder::{parse_token::UiTokenAmount, UiAccount},
     solana_sdk::{
-        clock::{Epoch, Slot, UnixTimestamp},
-        fee_calculator::{FeeCalculator, FeeRateGovernor},
-        hash::Hash,
-        inflation::Inflation,
-        transaction::{Result, TransactionError},
+        account::AccountSharedData, clock::{Epoch, Slot, UnixTimestamp}, fee_calculator::{FeeCalculator, FeeRateGovernor}, hash::Hash, inflation::Inflation, pubkey::Pubkey, transaction::{Result, TransactionError}
     },
     solana_transaction_status::{
         ConfirmedTransactionStatusWithSignature, TransactionConfirmationStatus, UiConfirmedBlock,
@@ -193,6 +189,8 @@ pub struct RpcKeyedAccount {
     pub pubkey: String,
     pub account: UiAccount,
 }
+
+pub type RpcAccountList = Vec<(Pubkey, AccountSharedData)>;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SlotInfo {
