@@ -475,6 +475,7 @@ impl JsonRpcRequestProcessor {
         config: Option<RpcAccountInfoConfig>,
         mut filters: Vec<RpcFilterType>,
         with_context: bool,
+        ordered: bool,
     ) -> Result<OptionalContext<Vec<RpcKeyedAccount>>> {
         let RpcAccountInfoConfig {
             encoding,
@@ -502,6 +503,7 @@ impl JsonRpcRequestProcessor {
                     program_id,
                     filters,
                     just_get_program_ids,
+                    ordered,
                 )?
             }
         };
@@ -532,7 +534,7 @@ impl JsonRpcRequestProcessor {
         config: Option<RpcAccountInfoConfig>,
         mut filters: Vec<RpcFilterType>,
         with_context: bool,
-    ) -> Result<OptionalContext<String>> {
+    ) -> Result<OptionalContext<Vec<RpcKeyedCompressedAccount>>> {
         let RpcAccountInfoConfig {
             data_slice: data_slice_config,
             commitment,
@@ -548,7 +550,7 @@ impl JsonRpcRequestProcessor {
             data_slice_config.map(|x| x.length == 0).unwrap_or_default() && filters.is_empty();
 
         optimize_filters(&mut filters);
-        let keyed_accounts : RpcAccountList = {
+        let keyed_accounts = {
             if let Some(owner) = get_spl_token_owner_filter(program_id, &filters) {
                 self.get_filtered_spl_token_accounts_by_owner(&bank, program_id, &owner, filters)?
             } else if let Some(mint) = get_spl_token_mint_filter(program_id, &filters) {
@@ -559,18 +561,31 @@ impl JsonRpcRequestProcessor {
                     program_id,
                     filters,
                     just_get_program_ids,
+                    false,
                 )?
             }
         };
-        let binary = bincode::serialize(&keyed_accounts).map_err(|_| Error::internal_error())?;
-        drop(keyed_accounts);
-        let compressed_binary = zstd::bulk::compress(&binary, 0).map_err(|_| Error::internal_error())?;
-        drop(binary);
-        let return_string = BASE64_STANDARD.encode(compressed_binary);
+
+        let compressed_list: Vec<RpcKeyedCompressedAccount> = keyed_accounts
+            .iter()
+            .map(|(pubkey, account)| {
+                let binary_account = bincode::serialize(&account)
+                    .map_err(|_| Error::internal_error())
+                    .unwrap();
+                let compressed_binary = zstd::bulk::compress(&binary_account, 0)
+                    .map_err(|_| Error::internal_error())
+                    .unwrap();
+                drop(binary_account);
+                RpcKeyedCompressedAccount {
+                    p: pubkey.to_string(),
+                    a: BASE64_STANDARD.encode(compressed_binary),
+                }
+            })
+            .collect_vec();
 
         Ok(match with_context {
-            true => OptionalContext::Context(new_response(&bank, return_string)),
-            false => OptionalContext::NoContext(return_string),
+            true => OptionalContext::Context(new_response(&bank, compressed_list)),
+            false => OptionalContext::NoContext(compressed_list),
         })
     }
 
@@ -2039,7 +2054,7 @@ impl JsonRpcRequestProcessor {
         } else {
             // Filter on Token Account state
             filters.push(RpcFilterType::TokenAccountState);
-            self.get_filtered_program_accounts(&bank, &token_program_id, filters, false)?
+            self.get_filtered_program_accounts(&bank, &token_program_id, filters, false, false)?
         };
         let accounts = if encoding == UiAccountEncoding::JsonParsed {
             get_parsed_token_accounts(bank.clone(), keyed_accounts.into_iter()).collect()
@@ -2064,6 +2079,7 @@ impl JsonRpcRequestProcessor {
         program_id: &Pubkey,
         mut filters: Vec<RpcFilterType>,
         just_get_program_ids: bool,
+        ordered: bool,
     ) -> RpcCustomResult<Vec<(Pubkey, AccountSharedData)>> {
         optimize_filters(&mut filters);
         let filter_closure = |account: &AccountSharedData| {
@@ -2096,7 +2112,7 @@ impl JsonRpcRequestProcessor {
                             account.owner() == program_id && filter_closure(account)
                         }
                     },
-                    &ScanConfig::default(),
+                    &ScanConfig::new(!ordered),
                     bank.byte_limit_for_scans(),
                     just_get_program_ids,
                 )
@@ -2106,7 +2122,11 @@ impl JsonRpcRequestProcessor {
         } else {
             // this path does not need to provide a mb limit because we only want to support secondary indexes
             Ok(bank
-                .get_filtered_program_accounts(program_id, filter_closure, &ScanConfig::new(true))
+                .get_filtered_program_accounts(
+                    program_id,
+                    filter_closure,
+                    &ScanConfig::new(!ordered),
+                )
                 .map_err(|e| RpcCustomError::ScanError {
                     message: e.to_string(),
                 })?)
@@ -2203,7 +2223,7 @@ impl JsonRpcRequestProcessor {
                     message: e.to_string(),
                 })?)
         } else {
-            self.get_filtered_program_accounts(bank, program_id, filters, false)
+            self.get_filtered_program_accounts(bank, program_id, filters, false, false)
         }
     }
 
@@ -2254,7 +2274,7 @@ impl JsonRpcRequestProcessor {
                     message: e.to_string(),
                 })?)
         } else {
-            self.get_filtered_program_accounts(bank, program_id, filters, false)
+            self.get_filtered_program_accounts(bank, program_id, filters, false, false)
         }
     }
 
@@ -3244,7 +3264,7 @@ pub mod rpc_accounts_scan {
             meta: Self::Metadata,
             program_id_str: String,
             config: Option<RpcProgramAccountsConfig>,
-        ) -> Result<OptionalContext<String>>;
+        ) -> Result<OptionalContext<Vec<RpcKeyedCompressedAccount>>>;
 
         #[rpc(meta, name = "getProgramAddresses")]
         fn get_program_addresses(
@@ -3314,14 +3334,15 @@ pub mod rpc_accounts_scan {
                 program_id_str
             );
             let program_id = verify_pubkey(&program_id_str)?;
-            let (config, filters, with_context) = if let Some(config) = config {
+            let (config, filters, with_context, ordered) = if let Some(config) = config {
                 (
                     Some(config.account_config),
                     config.filters.unwrap_or_default(),
                     config.with_context.unwrap_or_default(),
+                    config.ordered.unwrap_or_default(),
                 )
             } else {
-                (None, vec![], false)
+                (None, vec![], false, false)
             };
             if filters.len() > MAX_GET_PROGRAM_ACCOUNT_FILTERS {
                 return Err(Error::invalid_params(format!(
@@ -3331,7 +3352,7 @@ pub mod rpc_accounts_scan {
             for filter in &filters {
                 verify_filter(filter)?;
             }
-            meta.get_program_accounts(&program_id, config, filters, with_context)
+            meta.get_program_accounts(&program_id, config, filters, with_context, ordered)
         }
 
         fn get_program_addresses(
@@ -3353,7 +3374,7 @@ pub mod rpc_accounts_scan {
             meta: Self::Metadata,
             program_id_str: String,
             config: Option<RpcProgramAccountsConfig>,
-        ) -> Result<OptionalContext<String>> {
+        ) -> Result<OptionalContext<Vec<RpcKeyedCompressedAccount>>> {
             debug!(
                 "get_program_accounts_compressed rpc request received: {:?}",
                 program_id_str
