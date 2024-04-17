@@ -164,6 +164,7 @@ pub struct RpcProgramAccountsConfig {
     #[serde(flatten)]
     pub account_config: RpcAccountInfoConfig,
     pub with_context: Option<bool>,
+    pub ordered: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
