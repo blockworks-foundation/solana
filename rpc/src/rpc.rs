@@ -526,6 +526,54 @@ impl JsonRpcRequestProcessor {
         })
     }
 
+    pub fn get_program_accounts_compressed(
+        &self,
+        program_id: &Pubkey,
+        config: Option<RpcAccountInfoConfig>,
+        mut filters: Vec<RpcFilterType>,
+        with_context: bool,
+    ) -> Result<OptionalContext<String>> {
+        let RpcAccountInfoConfig {
+            data_slice: data_slice_config,
+            commitment,
+            min_context_slot,
+            ..
+        } = config.unwrap_or_default();
+        let bank = self.get_bank_with_config(RpcContextConfig {
+            commitment,
+            min_context_slot,
+        })?;
+
+        let just_get_program_ids =
+            data_slice_config.map(|x| x.length == 0).unwrap_or_default() && filters.is_empty();
+
+        optimize_filters(&mut filters);
+        let keyed_accounts : RpcAccountList = {
+            if let Some(owner) = get_spl_token_owner_filter(program_id, &filters) {
+                self.get_filtered_spl_token_accounts_by_owner(&bank, program_id, &owner, filters)?
+            } else if let Some(mint) = get_spl_token_mint_filter(program_id, &filters) {
+                self.get_filtered_spl_token_accounts_by_mint(&bank, program_id, &mint, filters)?
+            } else {
+                self.get_filtered_program_accounts(
+                    &bank,
+                    program_id,
+                    filters,
+                    just_get_program_ids,
+                )?
+            }
+        };
+        let binary = bincode::serialize(&keyed_accounts).map_err(|_| Error::internal_error())?;
+        drop(keyed_accounts);
+        let compressed_binary = zstd::bulk::compress(&binary, 0).map_err(|_| Error::internal_error())?;
+        drop(binary);
+        let return_string = BASE64_STANDARD.encode(compressed_binary);
+
+        Ok(match with_context {
+            true => OptionalContext::Context(new_response(&bank, return_string)),
+            false => OptionalContext::NoContext(return_string),
+        })
+    }
+
     pub fn get_program_addresses(
         &self,
         program_id: &Pubkey,
@@ -3190,6 +3238,14 @@ pub mod rpc_accounts_scan {
             config: Option<RpcProgramAccountsConfig>,
         ) -> Result<OptionalContext<Vec<RpcKeyedAccount>>>;
 
+        #[rpc(meta, name = "getProgramAccountsCompressed")]
+        fn get_program_accounts_compressed(
+            &self,
+            meta: Self::Metadata,
+            program_id_str: String,
+            config: Option<RpcProgramAccountsConfig>,
+        ) -> Result<OptionalContext<String>>;
+
         #[rpc(meta, name = "getProgramAddresses")]
         fn get_program_addresses(
             &self,
@@ -3290,6 +3346,37 @@ pub mod rpc_accounts_scan {
             );
             let program_id = verify_pubkey(&program_id_str)?;
             meta.get_program_addresses(&program_id, commitment)
+        }
+
+        fn get_program_accounts_compressed(
+            &self,
+            meta: Self::Metadata,
+            program_id_str: String,
+            config: Option<RpcProgramAccountsConfig>,
+        ) -> Result<OptionalContext<String>> {
+            debug!(
+                "get_program_accounts_compressed rpc request received: {:?}",
+                program_id_str
+            );
+            let program_id = verify_pubkey(&program_id_str)?;
+            let (config, filters, with_context) = if let Some(config) = config {
+                (
+                    Some(config.account_config),
+                    config.filters.unwrap_or_default(),
+                    config.with_context.unwrap_or_default(),
+                )
+            } else {
+                (None, vec![], false)
+            };
+            if filters.len() > MAX_GET_PROGRAM_ACCOUNT_FILTERS {
+                return Err(Error::invalid_params(format!(
+                    "Too many filters provided; max {MAX_GET_PROGRAM_ACCOUNT_FILTERS}"
+                )));
+            }
+            for filter in &filters {
+                verify_filter(filter)?;
+            }
+            meta.get_program_accounts_compressed(&program_id, config, filters, with_context)
         }
 
         fn get_largest_accounts(
