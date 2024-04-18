@@ -36,7 +36,6 @@
 #[allow(deprecated)]
 use solana_sdk::recent_blockhashes_account;
 pub use solana_sdk::reward_type::RewardType;
-use solana_sdk::transaction_context::TransactionAccountCompressed;
 use {
     crate::{
         bank::metrics::*,
@@ -172,7 +171,8 @@ use {
             TransactionVerificationMode, VersionedTransaction, MAX_TX_ACCOUNT_LOCKS,
         },
         transaction_context::{
-            ExecutionRecord, TransactionAccount, TransactionContext, TransactionReturnData,
+            ExecutionRecord, TransactionAccount, TransactionAccountCompressed, TransactionContext,
+            TransactionReturnData,
         },
     },
     solana_stake_program::stake_state::{
@@ -5665,6 +5665,7 @@ impl Bank {
             &durable_nonce,
             lamports_per_signature,
             self.include_slot_in_hash(),
+            Some(&self.ancestors),
         );
         let rent_debits = self.collect_rent(&execution_results, loaded_txs);
 

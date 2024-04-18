@@ -67,6 +67,7 @@ fn test_shrink_and_clean() {
                         INCLUDE_SLOT_IN_HASH_TESTS,
                     ),
                     None,
+                    None,
                 );
             }
             accounts.add_root(current_slot);
@@ -135,6 +136,7 @@ fn test_bad_bank_hash() {
             .collect();
         db.store_cached(
             (some_slot, &account_refs[..], INCLUDE_SLOT_IN_HASH_TESTS),
+            None,
             None,
         );
         for pass in 0..2 {

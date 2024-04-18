@@ -552,9 +552,13 @@ impl JsonRpcRequestProcessor {
         optimize_filters(&mut filters);
         let keyed_accounts = {
             if let Some(owner) = get_spl_token_owner_filter(program_id, &filters) {
-                self.get_filtered_spl_token_accounts_by_owner_compressed(&bank, program_id, &owner, filters)?
+                self.get_filtered_spl_token_accounts_by_owner_compressed(
+                    &bank, program_id, &owner, filters,
+                )?
             } else if let Some(mint) = get_spl_token_mint_filter(program_id, &filters) {
-                self.get_filtered_spl_token_accounts_by_mint_compressed(&bank, program_id, &mint, filters)?
+                self.get_filtered_spl_token_accounts_by_mint_compressed(
+                    &bank, program_id, &mint, filters,
+                )?
             } else {
                 self.get_filtered_program_accounts_compressed(
                     &bank,
@@ -568,11 +572,9 @@ impl JsonRpcRequestProcessor {
 
         let compressed_list: Vec<RpcKeyedCompressedAccount> = keyed_accounts
             .iter()
-            .map(|(pubkey, account)| {
-                RpcKeyedCompressedAccount {
-                    p: pubkey.to_string(),
-                    a: BASE64_STANDARD.encode(account),
-                }
+            .map(|(pubkey, account)| RpcKeyedCompressedAccount {
+                p: pubkey.to_string(),
+                a: BASE64_STANDARD.encode(account),
             })
             .collect_vec();
 

@@ -974,7 +974,9 @@ impl Accounts {
             .map(|(pubkey, account, _slot)| (*pubkey, account))
         {
             let src = bincode::serialize(&account).unwrap();
-            let compressed = lz4::block::compress(&src, Some(lz4::block::CompressionMode::FAST(3)), true).unwrap();
+            let compressed =
+                lz4::block::compress(&src, Some(lz4::block::CompressionMode::FAST(3)), true)
+                    .unwrap();
             collector.push((pk, compressed))
         }
     }
@@ -1050,9 +1052,11 @@ impl Accounts {
                 ancestors,
                 bank_id,
                 |some_account_tuple| {
-                    Self::load_while_filtering_compressed(&mut collector, some_account_tuple, |account| {
-                        account.owner() == program_id && filter(account)
-                    })
+                    Self::load_while_filtering_compressed(
+                        &mut collector,
+                        some_account_tuple,
+                        |account| account.owner() == program_id && filter(account),
+                    )
                 },
                 config,
             )
@@ -1181,31 +1185,35 @@ impl Accounts {
                 bank_id,
                 *index_key,
                 |some_account_tuple| {
-                    Self::load_while_filtering_compressed(&mut collector, some_account_tuple, |account| {
-                        if just_get_program_ids {
-                            if Self::accumulate_and_check_scan_result_size(
-                                &sum,
-                                account,
-                                &byte_limit_for_scan,
-                            ) {
-                                config.abort();
-                            }
-                            true
-                        } else {
-                            let use_account = filter(account);
-                            if use_account
-                                && Self::accumulate_and_check_scan_result_size(
+                    Self::load_while_filtering_compressed(
+                        &mut collector,
+                        some_account_tuple,
+                        |account| {
+                            if just_get_program_ids {
+                                if Self::accumulate_and_check_scan_result_size(
                                     &sum,
                                     account,
                                     &byte_limit_for_scan,
-                                )
-                            {
-                                // total size of results exceeds size limit, so abort scan
-                                config.abort();
+                                ) {
+                                    config.abort();
+                                }
+                                true
+                            } else {
+                                let use_account = filter(account);
+                                if use_account
+                                    && Self::accumulate_and_check_scan_result_size(
+                                        &sum,
+                                        account,
+                                        &byte_limit_for_scan,
+                                    )
+                                {
+                                    // total size of results exceeds size limit, so abort scan
+                                    config.abort();
+                                }
+                                use_account
                             }
-                            use_account
-                        }
-                    });
+                        },
+                    );
                 },
                 &config,
                 just_get_program_ids,
@@ -1429,6 +1437,7 @@ impl Accounts {
         durable_nonce: &DurableNonce,
         lamports_per_signature: u64,
         include_slot_in_hash: IncludeSlotInHash,
+        ancestors: Option<&Ancestors>,
     ) {
         let (accounts_to_store, transactions) = self.collect_accounts_to_store(
             txs,
@@ -1441,6 +1450,7 @@ impl Accounts {
         self.accounts_db.store_cached_inline_update_index(
             (slot, &accounts_to_store[..], include_slot_in_hash),
             Some(&transactions),
+            ancestors,
         );
     }
 
@@ -1448,7 +1458,7 @@ impl Accounts {
         &self,
         accounts: impl StorableAccounts<'a, T>,
     ) {
-        self.accounts_db.store_cached(accounts, None)
+        self.accounts_db.store_cached(accounts, None, None)
     }
 
     /// Add a slot to root.  Root slots cannot be purged
