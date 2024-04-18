@@ -35,8 +35,14 @@ lazy_static! {
         );
         m.insert(*CONFIG_PROGRAM_ID, ParsableAccount::Config);
         m.insert(*SYSTEM_PROGRAM_ID, ParsableAccount::Nonce);
-        m.insert(spl_token::id(), ParsableAccount::SplToken);
-        m.insert(spl_token_2022::id(), ParsableAccount::SplToken2022);
+        m.insert(
+            Pubkey::new_from_array(spl_token::id().to_bytes()),
+            ParsableAccount::SplToken,
+        );
+        m.insert(
+            Pubkey::new_from_array(spl_token_2022::id().to_bytes()),
+            ParsableAccount::SplToken2022,
+        );
         m.insert(*STAKE_PROGRAM_ID, ParsableAccount::Stake);
         m.insert(*SYSVAR_PROGRAM_ID, ParsableAccount::Sysvar);
         m.insert(*VOTE_PROGRAM_ID, ParsableAccount::Vote);

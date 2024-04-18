@@ -822,12 +822,12 @@ fn check_num_token_accounts(accounts: &[u8], num: usize) -> Result<(), ParseInst
 #[deprecated(since = "1.16.0", note = "Instruction conversions no longer needed")]
 pub fn spl_token_instruction(instruction: SplTokenInstruction) -> Instruction {
     Instruction {
-        program_id: instruction.program_id,
+        program_id: solana_sdk::pubkey::Pubkey::new_from_array(instruction.program_id.to_bytes()),
         accounts: instruction
             .accounts
             .iter()
             .map(|meta| AccountMeta {
-                pubkey: meta.pubkey,
+                pubkey: solana_sdk::pubkey::Pubkey::new_from_array(meta.pubkey.to_bytes()),
                 is_signer: meta.is_signer,
                 is_writable: meta.is_writable,
             })

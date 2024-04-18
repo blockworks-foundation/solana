@@ -36,6 +36,7 @@
 #[allow(deprecated)]
 use solana_sdk::recent_blockhashes_account;
 pub use solana_sdk::reward_type::RewardType;
+use solana_sdk::transaction_context::TransactionAccountCompressed;
 use {
     crate::{
         bank::metrics::*,
@@ -6812,6 +6813,21 @@ impl Bank {
         )
     }
 
+    pub fn get_filtered_program_accounts_compressed<F: Fn(&AccountSharedData) -> bool>(
+        &self,
+        program_id: &Pubkey,
+        filter: F,
+        config: &ScanConfig,
+    ) -> ScanResult<Vec<TransactionAccountCompressed>> {
+        self.rc.accounts.load_by_program_with_filter_compressed(
+            &self.ancestors,
+            self.bank_id,
+            program_id,
+            filter,
+            config,
+        )
+    }
+
     pub fn get_filtered_indexed_accounts<F: Fn(&AccountSharedData) -> bool>(
         &self,
         index_key: &IndexKey,
@@ -6821,6 +6837,25 @@ impl Bank {
         just_get_program_ids: bool,
     ) -> ScanResult<Vec<TransactionAccount>> {
         self.rc.accounts.load_by_index_key_with_filter(
+            &self.ancestors,
+            self.bank_id,
+            index_key,
+            filter,
+            config,
+            byte_limit_for_scan,
+            just_get_program_ids,
+        )
+    }
+
+    pub fn get_filtered_indexed_accounts_compressed<F: Fn(&AccountSharedData) -> bool>(
+        &self,
+        index_key: &IndexKey,
+        filter: F,
+        config: &ScanConfig,
+        byte_limit_for_scan: Option<usize>,
+        just_get_program_ids: bool,
+    ) -> ScanResult<Vec<TransactionAccountCompressed>> {
+        self.rc.accounts.load_by_index_key_with_filter_compressed(
             &self.ancestors,
             self.bank_id,
             index_key,

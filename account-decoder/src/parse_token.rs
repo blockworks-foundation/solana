@@ -18,12 +18,16 @@ use {
 
 // Returns all known SPL Token program ids
 pub fn spl_token_ids() -> Vec<Pubkey> {
-    vec![spl_token::id(), spl_token_2022::id()]
+    vec![
+        Pubkey::new_from_array(spl_token::id().to_bytes()),
+        Pubkey::new_from_array(spl_token_2022::id().to_bytes()),
+    ]
 }
 
 // Check if the provided program id as a known SPL Token program id
 pub fn is_known_spl_token_id(program_id: &Pubkey) -> bool {
-    *program_id == spl_token::id() || *program_id == spl_token_2022::id()
+    *program_id == Pubkey::new_from_array(spl_token::id().to_bytes())
+        || *program_id == Pubkey::new_from_array(spl_token_2022::id().to_bytes())
 }
 
 // A helper function to convert spl_token::native_mint::id() as spl_sdk::pubkey::Pubkey to
@@ -42,7 +46,7 @@ pub fn spl_token_native_mint() -> Pubkey {
     note = "Pubkey conversions no longer needed. Please use spl_token::id() directly"
 )]
 pub fn spl_token_native_mint_program_id() -> Pubkey {
-    spl_token::id()
+    Pubkey::new_from_array(spl_token::id().to_bytes())
 }
 
 // A helper function to convert a solana_sdk::pubkey::Pubkey to spl_sdk::pubkey::Pubkey
