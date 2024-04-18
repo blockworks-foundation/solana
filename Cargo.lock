@@ -6993,7 +6993,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util 0.6.9",
- "zstd",
 ]
 
 [[package]]
