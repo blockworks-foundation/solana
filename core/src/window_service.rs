@@ -208,6 +208,24 @@ fn run_check_duplicate(
                     return Ok(());
                 }
             }
+            PossibleDuplicateShred::ChainedMerkleRootConflict(shred, conflict) => {
+                if chained_merkle_conflict_duplicate_proofs {
+                    // Although this proof can be immediately stored on detection, we wait until
+                    // here in order to check the feature flag, as storage in blockstore can
+                    // preclude the detection of other duplicate proofs in this slot
+                    if blockstore.has_duplicate_shreds_in_slot(shred_slot) {
+                        return Ok(());
+                    }
+                    blockstore.store_duplicate_slot(
+                        shred_slot,
+                        conflict.clone(),
+                        shred.clone().into_payload(),
+                    )?;
+                    (shred, conflict)
+                } else {
+                    return Ok(());
+                }
+            }
             PossibleDuplicateShred::Exists(shred) => {
                 // Unlike the other cases we have to wait until here to decide to handle the duplicate and store
                 // in blockstore. This is because the duplicate could have been part of the same insert batch,
