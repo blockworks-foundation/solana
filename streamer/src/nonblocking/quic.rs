@@ -29,18 +29,14 @@ use {
             QUIC_MIN_STAKED_CONCURRENT_STREAMS, QUIC_MIN_STAKED_RECEIVE_WINDOW_RATIO,
             QUIC_TOTAL_STAKED_CONCURRENT_STREAMS, QUIC_UNSTAKED_RECEIVE_WINDOW_RATIO,
         },
-        signature::Keypair,
+        signature::{Keypair, Signature},
         timing,
     },
     std::{
-        iter::repeat_with,
-        net::{IpAddr, SocketAddr, UdpSocket},
-        // CAUTION: be careful not to introduce any awaits while holding an RwLock.
-        sync::{
+        iter::repeat_with, net::{IpAddr, SocketAddr, UdpSocket}, str::FromStr, sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
             Arc, RwLock,
-        },
-        time::{Duration, Instant},
+        }, time::{Duration, Instant}
     },
     tokio::{
         // CAUTION: It's kind of sketch that we're mixing async and sync locks (see the RwLock above).
@@ -207,6 +203,8 @@ async fn run_server(
         stats.clone(),
         coalesce,
     ));
+
+    let mango_validator = Pubkey::from_str("B4dn3WWS95M4qNXaR5NTdkNzhzvTZVqC13E3eLrWhXLa").unwrap();
     while !exit.load(Ordering::Relaxed) {
         let timeout_connection = timeout(WAIT_FOR_CONNECTION_TIMEOUT, incoming.accept()).await;
 
@@ -230,6 +228,7 @@ async fn run_server(
                 stats.clone(),
                 wait_for_chunk_timeout,
                 stream_load_ema.clone(),
+                mango_validator,
             ));
         } else {
             debug!("accept(): Timed out waiting for connection");
@@ -354,6 +353,7 @@ fn handle_and_cache_new_connection(
     params: &NewConnectionHandlerParams,
     wait_for_chunk_timeout: Duration,
     stream_load_ema: Arc<StakedStreamLoadEMA>,
+    mango_validator: Pubkey,
 ) -> Result<(), ConnectionHandlerError> {
     if let Ok(max_uni_streams) = VarInt::from_u64(compute_max_allowed_uni_streams(
         params.peer_type,
@@ -400,6 +400,7 @@ fn handle_and_cache_new_connection(
                 wait_for_chunk_timeout,
                 stream_load_ema,
                 stream_counter,
+                mango_validator,
             ));
             Ok(())
         } else {
@@ -429,6 +430,7 @@ async fn prune_unstaked_connections_and_add_new_connection(
     params: &NewConnectionHandlerParams,
     wait_for_chunk_timeout: Duration,
     stream_load_ema: Arc<StakedStreamLoadEMA>,
+    mango_validator: Pubkey,
 ) -> Result<(), ConnectionHandlerError> {
     let stats = params.stats.clone();
     if max_connections > 0 {
@@ -442,6 +444,7 @@ async fn prune_unstaked_connections_and_add_new_connection(
             params,
             wait_for_chunk_timeout,
             stream_load_ema,
+            mango_validator,
         )
     } else {
         connection.close(
@@ -509,6 +512,7 @@ async fn setup_connection(
     stats: Arc<StreamStats>,
     wait_for_chunk_timeout: Duration,
     stream_load_ema: Arc<StakedStreamLoadEMA>,
+    mango_validator: Pubkey,
 ) {
     const PRUNE_RANDOM_SAMPLE_SIZE: usize = 2;
     let from = connecting.remote_address();
@@ -566,6 +570,7 @@ async fn setup_connection(
                                 &params,
                                 wait_for_chunk_timeout,
                                 stream_load_ema.clone(),
+                                mango_validator,
                             ) {
                                 stats
                                     .connection_added_from_staked_peer
@@ -582,6 +587,7 @@ async fn setup_connection(
                                 &params,
                                 wait_for_chunk_timeout,
                                 stream_load_ema.clone(),
+                                mango_validator,
                             )
                             .await
                             {
@@ -606,6 +612,7 @@ async fn setup_connection(
                             &params,
                             wait_for_chunk_timeout,
                             stream_load_ema.clone(),
+                            mango_validator,
                         )
                         .await
                         {
@@ -761,6 +768,7 @@ async fn handle_connection(
     wait_for_chunk_timeout: Duration,
     stream_load_ema: Arc<StakedStreamLoadEMA>,
     stream_counter: Arc<ConnectionStreamCounter>,
+    mango_validator: Pubkey,
 ) {
     let stats = params.stats;
     debug!(
@@ -769,6 +777,7 @@ async fn handle_connection(
         stats.total_streams.load(Ordering::Relaxed),
         stats.total_connections.load(Ordering::Relaxed),
     );
+    let track = mango_validator == params.remote_pubkey.unwrap_or_default();
     let stable_id = connection.stable_id();
     stats.total_connections.fetch_add(1, Ordering::Relaxed);
     while !stream_exit.load(Ordering::Relaxed) {
@@ -847,6 +856,7 @@ async fn handle_connection(
                                     &packet_sender,
                                     stats.clone(),
                                     params.peer_type,
+                                    track,
                                 )
                                 .await
                                 {
@@ -899,6 +909,7 @@ async fn handle_chunk(
     packet_sender: &AsyncSender<PacketAccumulator>,
     stats: Arc<StreamStats>,
     peer_type: ConnectionPeerType,
+    track: bool,
 ) -> bool {
     match chunk {
         Ok(maybe_chunk) => {
@@ -919,6 +930,17 @@ async fn handle_chunk(
                         .total_invalid_chunk_size
                         .fetch_add(1, Ordering::Relaxed);
                     return true;
+                }
+
+                if track && chunk.offset == 0{
+                    if chunk.bytes.len() >= 65 {
+                        let sig_bytes = chunk.bytes[2..65].to_vec();
+                        let signature = Signature::new(&sig_bytes);
+                        log::warn!("QUIC METRICS: mango identity sent {} from {}", signature.to_string(), remote_addr.to_string());
+                    } else {
+                        log::warn!("QUIC METRICS: chunk is too small");
+                    }
+                    
                 }
 
                 // chunk looks valid

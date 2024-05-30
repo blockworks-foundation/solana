@@ -1981,6 +1981,8 @@ impl ReplayStage {
                 return;
             }
 
+            log::warn!("QUIC METRICS: NODE IS THE LEADER ------------------------");
+
             trace!(
                 "{} leader {} at poh slot: {}",
                 my_pubkey,
