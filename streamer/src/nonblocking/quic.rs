@@ -33,10 +33,14 @@ use {
         timing,
     },
     std::{
-        iter::repeat_with, net::{IpAddr, SocketAddr, UdpSocket}, str::FromStr, sync::{
+        iter::repeat_with,
+        net::{IpAddr, SocketAddr, UdpSocket},
+        str::FromStr,
+        sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
             Arc, RwLock,
-        }, time::{Duration, Instant}
+        },
+        time::{Duration, Instant},
     },
     tokio::{
         // CAUTION: It's kind of sketch that we're mixing async and sync locks (see the RwLock above).
@@ -932,15 +936,21 @@ async fn handle_chunk(
                     return true;
                 }
 
-                if track && chunk.offset == 0{
+                if track {
+                    log::warn!("CHUNK TEST : chunk {} {}", chunk.offset, chunk_len);
+                }
+                if track && chunk.offset < 2 {
                     if chunk.bytes.len() >= 65 {
                         let sig_bytes = chunk.bytes[2..65].to_vec();
                         let signature = Signature::new(&sig_bytes);
-                        log::warn!("QUIC METRICS: mango identity sent {} from {}", signature.to_string(), remote_addr.to_string());
+                        log::warn!(
+                            "QUIC METRICS: mango identity sent {} from {}",
+                            signature.to_string(),
+                            remote_addr.to_string()
+                        );
                     } else {
                         log::warn!("QUIC METRICS: chunk is too small");
                     }
-                    
                 }
 
                 // chunk looks valid
