@@ -436,8 +436,6 @@ impl AppendVec {
     /// the internal buffer. Then update `offset` to the first byte after the copied data.
     fn append_ptr(&self, offset: &mut usize, src: *const u8, len: usize) {
 
-        info!("write to append_vec mmap file: offset: {}, len: {}, path: {}", offset, len, self.path.to_str().unwrap());
-
         let pos = u64_align!(*offset);
         let data = &self.map[pos..(pos + len)];
         //UNSAFE: This mut append is safe because only 1 thread can append at a time
@@ -621,6 +619,12 @@ impl AppendVec {
                 (hash_ptr, mem::size_of::<Hash>()),
                 (data_ptr, data_len),
             ];
+
+            info!("write to append_vec mmap file: pubkey: {}, owner: {}, data_len: {}, path: {} at offset {}",
+                pubkey, account_meta.owner,
+                data_len, self.path.to_str().unwrap(), offset);
+
+
             if let Some(res) = self.append_ptrs_locked(&mut offset, &ptrs) {
                 offsets.push(res)
             } else {
