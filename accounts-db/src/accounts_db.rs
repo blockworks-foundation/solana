@@ -6598,6 +6598,8 @@ impl AccountsDb {
             // will be able to find the account in storage
             let flushed_store =
                 self.create_and_insert_store(slot, aligned_total_size, "flush_slot_cache");
+            // TODO check if this is the only place where new append_vecs get genearted
+            info!("created new append_vec file {} for slot {}", flushed_store.accounts.get_path().file_name().unwrap().to_str().unwrap(), slot);
             // irrelevant - account will already be hashed since it was used in bank hash previously
             let include_slot_in_hash = IncludeSlotInHash::IrrelevantAssertOnUse;
             self.store_accounts_frozen(
