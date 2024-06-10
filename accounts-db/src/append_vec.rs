@@ -435,6 +435,9 @@ impl AppendVec {
     /// Copy `len` bytes from `src` to the first 64-byte boundary after position `offset` of
     /// the internal buffer. Then update `offset` to the first byte after the copied data.
     fn append_ptr(&self, offset: &mut usize, src: *const u8, len: usize) {
+
+        info!("write to append_vec mmap file: offset: {}, len: {}, path: {}", offset, len, self.path.to_str().unwrap());
+
         let pos = u64_align!(*offset);
         let data = &self.map[pos..(pos + len)];
         //UNSAFE: This mut append is safe because only 1 thread can append at a time
