@@ -622,7 +622,7 @@ impl AppendVec {
 
             info!("write to append_vec mmap file: pubkey: {}, owner: {}, data_len: {}, path: {} at offset {}",
                 pubkey, account_meta.owner,
-                data_len, self.path.to_str().unwrap(), offset);
+                data_len, self.path.file_name().to_str().unwrap(), offset);
 
 
             if let Some(res) = self.append_ptrs_locked(&mut offset, &ptrs) {
