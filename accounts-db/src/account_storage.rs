@@ -1,5 +1,6 @@
 //! Manage the map of slot -> append vec
 
+use log::info;
 use {
     crate::accounts_db::{AccountStorageEntry, AppendVecId},
     dashmap::DashMap,
@@ -52,6 +53,8 @@ impl AccountStorage {
         slot: Slot,
         store_id: AppendVecId,
     ) -> Option<Arc<AccountStorageEntry>> {
+        let total = self.map.len();
+        info!("get_account_storage_entry for slot {} of total {}", slot, total);
         let lookup_in_map = || {
             self.map
                 .get(&slot)

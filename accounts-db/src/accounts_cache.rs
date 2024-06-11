@@ -1,3 +1,4 @@
+use log::info;
 use {
     crate::accounts_db::IncludeSlotInHash,
     dashmap::DashMap,
@@ -109,6 +110,8 @@ impl SlotCacheInner {
     }
 
     pub fn get_cloned(&self, pubkey: &Pubkey) -> Option<CachedAccount> {
+        let total = self.cache.len();
+        info!("get_cloned returning CachedAccount for pubkey {} of total {}", pubkey, total);
         self.cache
             .get(pubkey)
             // 1) Maybe can eventually use a Cow to avoid a clone on every read
@@ -260,6 +263,8 @@ impl AccountsCache {
     }
 
     pub fn slot_cache(&self, slot: Slot) -> Option<SlotCache> {
+        let total = self.cache.len();
+        info!("get slot cache for slot {} (total={})", slot, total);
         self.cache.get(&slot).map(|result| result.value().clone())
     }
 

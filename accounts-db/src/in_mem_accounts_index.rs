@@ -1,3 +1,4 @@
+use log::info;
 use {
     crate::{
         accounts_index::{
@@ -337,6 +338,8 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> InMemAccountsIndex<T,
         // return true if item should be added to in_mem cache
         callback: impl for<'a> FnOnce(Option<&AccountMapEntry<T>>) -> (bool, RT),
     ) -> RT {
+        let total_entries = self.map_internal.read().unwrap().len();
+        info!("(in_memory_index) get_internal: pubkey: {:?} (total={})", pubkey, total_entries);
         self.get_only_in_mem(pubkey, true, |entry| {
             if let Some(entry) = entry {
                 callback(Some(entry)).1

@@ -5069,6 +5069,7 @@ impl AccountsDb {
         pubkey: &Pubkey,
         load_hint: LoadHint,
     ) -> Option<(AccountSharedData, Slot)> {
+        info!("load: loading account {:?}", pubkey);
         self.do_load(ancestors, pubkey, None, load_hint, LoadZeroLamports::None)
     }
 
@@ -5282,7 +5283,7 @@ impl AccountsDb {
         //    clean_accounts()/                   |
         //        clean_accounts_older_than_root()| (removes existing store_id, offset for stores)
         //                                        V
-        //
+        //accounts_cache
         // Remarks for purger: So, for any reading operations, it's a race condition
         // where P2 happens between R1 and R2. In that case, retrying from R1 is safu.
         // In that case, we may bail at index read retry when P3 hasn't been run

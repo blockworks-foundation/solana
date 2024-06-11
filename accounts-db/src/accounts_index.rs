@@ -1444,6 +1444,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
         ancestors: Option<&Ancestors>,
         max_root: Option<Slot>,
     ) -> AccountIndexGetResult<T> {
+        info!("get index for pubkey: {:?}", pubkey);
         let read_lock = self.get_bin(pubkey);
         let account = read_lock
             .get(pubkey)
