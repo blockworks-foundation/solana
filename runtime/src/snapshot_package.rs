@@ -150,6 +150,7 @@ impl AccountsPackage {
             expected_capitalization: bank.capitalization(),
             accounts_hash_for_testing,
             accounts: bank.accounts(),
+            #[allow(clippy::clone_on_copy)]
             epoch_schedule: bank.epoch_schedule().clone(),
             rent_collector: bank.rent_collector().clone(),
             snapshot_info,
