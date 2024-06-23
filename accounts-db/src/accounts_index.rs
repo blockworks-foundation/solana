@@ -2137,9 +2137,10 @@ pub mod tests {
                         vec![(slot, account_info)],
                         entry.ref_count(),
                         meta,
+                        &entry.account_key,
                     )))
                 }
-                PreAllocatedAccountMapEntry::Raw(_, raw) => PreAllocatedAccountMapEntry::Raw(*raw),
+                PreAllocatedAccountMapEntry::Raw(account_key, raw) => PreAllocatedAccountMapEntry::Raw(*account_key, *raw),
             }
         }
     }
@@ -2443,18 +2444,19 @@ pub mod tests {
 
     fn get_pre_allocated<T: IndexValue>(
         slot: Slot,
+        account_key: &Pubkey,
         account_info: T,
         storage: &Arc<BucketMapHolder<T, T>>,
         store_raw: bool,
         to_raw_first: bool,
     ) -> PreAllocatedAccountMapEntry<T> {
-        let entry = PreAllocatedAccountMapEntry::new(slot, account_info, storage, store_raw);
+        let entry = PreAllocatedAccountMapEntry::new(account_key, slot, account_info, storage, store_raw);
 
         if to_raw_first {
             // convert to raw
             let (slot2, account_info2) = entry.into();
             // recreate using extracted raw
-            PreAllocatedAccountMapEntry::new(slot2, account_info2, storage, store_raw)
+            PreAllocatedAccountMapEntry::new(account_key, slot2, account_info2, storage, store_raw)
         } else {
             entry
         }
@@ -2468,9 +2470,11 @@ pub mod tests {
                 // account_info type that IS cached
                 let account_info = AccountInfoTest::default();
                 let index = AccountsIndex::default_for_tests();
+                let pubkey = solana_sdk::pubkey::new_rand();
 
                 let new_entry = get_pre_allocated(
                     slot,
+                    &pubkey,
                     account_info,
                     &index.storage.storage,
                     store_raw,
@@ -2487,9 +2491,11 @@ pub mod tests {
                 // account_info type that is NOT cached
                 let account_info = true;
                 let index = AccountsIndex::default_for_tests();
+                let pubkey = solana_sdk::pubkey::new_rand();
 
                 let new_entry = get_pre_allocated(
                     slot,
+                    &pubkey,
                     account_info,
                     &index.storage.storage,
                     store_raw,
@@ -2589,6 +2595,7 @@ pub mod tests {
             let expected = vec![(slot0, account_infos[0])];
             assert_eq!(entry.slot_list().to_vec(), expected);
             let new_entry: AccountMapEntry<_> = PreAllocatedAccountMapEntry::new(
+                &key,
                 slot0,
                 account_infos[0],
                 &index.storage.storage,
@@ -2656,6 +2663,7 @@ pub mod tests {
             );
 
             let new_entry = PreAllocatedAccountMapEntry::new(
+                &key,
                 slot1,
                 account_infos[1],
                 &index.storage.storage,
@@ -2686,7 +2694,7 @@ pub mod tests {
         let account_info = true;
 
         let new_entry =
-            PreAllocatedAccountMapEntry::new(slot, account_info, &index.storage.storage, false);
+            PreAllocatedAccountMapEntry::new(&key, slot, account_info, &index.storage.storage, false);
         assert_eq!(0, account_maps_stats_len(&index));
         assert_eq!((slot, account_info), new_entry.clone().into());
 

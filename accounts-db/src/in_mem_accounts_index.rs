@@ -1,3 +1,5 @@
+use std::hash::Hasher;
+use fnv::FnvHasher;
 use log::info;
 use {
     crate::{
@@ -31,7 +33,10 @@ type InMemMap<T> = nohash_hasher::IntMap<u64, AccountMapEntry<T>>;
 
 
 fn fnv64_pubkey(pubkey: &Pubkey) -> u64 {
-    fnv64_pubkey(pubkey)
+    let mut hasher = FnvHasher::default();
+    hasher.write(pubkey.as_ref());
+    let owner_hash64 = hasher.finish();
+    owner_hash64
 }
 
 #[derive(Debug, Default)]
@@ -1580,6 +1585,7 @@ mod tests {
     fn test_should_evict_from_mem_ref_count() {
         for ref_count in [0, 1, 2] {
             let bucket = new_for_test::<u64>();
+            let account_key = Pubkey::default();
             let startup = false;
             let current_age = 0;
             let one_element_slot_list = vec![(0, 0)];
@@ -1587,6 +1593,7 @@ mod tests {
                 one_element_slot_list,
                 ref_count,
                 AccountMapEntryMeta::default(),
+                &account_key,
             ));
 
             // exceeded budget
@@ -1617,10 +1624,12 @@ mod tests {
         let accounts = (0..=255)
             .map(|age| {
                 let one_element_slot_list = vec![(0, 0)];
+                let account_key = pks[age as usize];
                 let one_element_slot_list_entry = Arc::new(AccountMapEntryInner::new(
                     one_element_slot_list,
                     ref_count,
                     AccountMapEntryMeta::default(),
+                    &account_key,
                 ));
                 one_element_slot_list_entry.set_age(age);
                 one_element_slot_list_entry
@@ -1633,7 +1642,7 @@ mod tests {
                 let mut possible_evictions = PossibleEvictions::new(1);
                 possible_evictions.reset(1);
                 InMemAccountsIndex::<u64, u64>::gather_possible_evictions(
-                    both.iter().cloned(),
+                    both.iter().map(|(key, v)| (fnv64_pubkey(&key), v)),
                     &mut possible_evictions,
                     startup,
                     current_age,
