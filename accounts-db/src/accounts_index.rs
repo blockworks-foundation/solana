@@ -2139,7 +2139,7 @@ pub mod tests {
                         meta,
                     )))
                 }
-                PreAllocatedAccountMapEntry::Raw(raw) => PreAllocatedAccountMapEntry::Raw(*raw),
+                PreAllocatedAccountMapEntry::Raw(_, raw) => PreAllocatedAccountMapEntry::Raw(*raw),
             }
         }
     }

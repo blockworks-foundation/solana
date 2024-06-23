@@ -1028,14 +1028,15 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> InMemAccountsIndex<T,
 
     /// fill in `possible_evictions` from `iter` by checking age
     fn gather_possible_evictions<'a>(
-        iter: impl Iterator<Item = (&'a Pubkey, &'a Arc<AccountMapEntryInner<T>>)>,
+        iter: impl Iterator<Item = (&'a u64, &'a Arc<AccountMapEntryInner<T>>)>,
         possible_evictions: &mut PossibleEvictions<T>,
         startup: bool,
         current_age: Age,
         ages_flushing_now: Age,
         can_randomly_flush: bool,
     ) {
-        for (k, v) in iter {
+        for (_key, v) in iter {
+            let account_key = v.account_key;
             let mut random = false;
             if !startup && current_age.wrapping_sub(v.age()) > ages_flushing_now {
                 if !can_randomly_flush || !Self::random_chance_of_eviction() {
@@ -1045,7 +1046,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> InMemAccountsIndex<T,
                 random = true;
             }
 
-            possible_evictions.insert(0, *k, Arc::clone(v), random);
+            possible_evictions.insert(0, account_key, Arc::clone(v), random);
         }
     }
 
@@ -1133,7 +1134,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> InMemAccountsIndex<T,
         duplicates_put_on_disk
             .into_iter()
             .chain(duplicates.into_iter().map(|(slot, key, info)| {
-                let entry = PreAllocatedAccountMapEntry::new(slot, info, &self.storage, true);
+                let entry = PreAllocatedAccountMapEntry::new(&key, slot, info, &self.storage, true);
                 self.insert_new_entry_if_missing_with_lock(key, entry);
                 (slot, key)
             }))
@@ -1329,7 +1330,8 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> InMemAccountsIndex<T,
     fn move_ages_to_future(&self, next_age: Age, current_age: Age, keys: &[Pubkey]) {
         let map = self.map_internal.read().unwrap();
         keys.iter().for_each(|key| {
-            if let Some(entry) = map.get(key) {
+            let fnv = fnv64_pubkey(key);
+            if let Some(entry) = map.get(&fnv) {
                 entry.try_exchange_age(next_age, current_age);
             }
         });
@@ -1382,7 +1384,8 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> InMemAccountsIndex<T,
         for evictions in evictions.chunks(50) {
             let mut map = self.map_internal.write().unwrap();
             for k in evictions {
-                if let Entry::Occupied(occupied) = map.entry(*k) {
+                let fnv = fnv64_pubkey(k);
+                if let Entry::Occupied(occupied) = map.entry(fnv) {
                     let v = occupied.get();
                     if Arc::strong_count(v) > 1 {
                         // someone is holding the value arc's ref count and could modify it, so do not evict
