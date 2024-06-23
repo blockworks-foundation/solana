@@ -273,6 +273,9 @@ impl AccountMapEntryMeta {
 /// one entry in the in-mem accounts index
 /// Represents the value for an account key in the in-memory accounts index
 pub struct AccountMapEntryInner<T> {
+
+    pub account_key: Pubkey,
+
     /// number of alive slots that contain >= 1 instances of account data for this pubkey
     /// where alive represents a slot that has not yet been removed by clean via AccountsDB::clean_stored_dead_slots() for containing no up to date account information
     ref_count: AtomicU64,
@@ -285,8 +288,9 @@ pub struct AccountMapEntryInner<T> {
 }
 
 impl<T: IndexValue> AccountMapEntryInner<T> {
-    pub fn new(slot_list: SlotList<T>, ref_count: RefCount, meta: AccountMapEntryMeta) -> Self {
+    pub fn new(slot_list: SlotList<T>, ref_count: RefCount, meta: AccountMapEntryMeta, account_key: &Pubkey) -> Self {
         Self {
+            account_key: account_key.clone(),
             slot_list: RwLock::new(slot_list),
             ref_count: AtomicU64::new(ref_count),
             meta,
@@ -392,7 +396,7 @@ impl<T: IndexValue> ReadAccountMapEntry<T> {
 /// can be used to pre-allocate structures for insertion into accounts index outside of lock
 pub enum PreAllocatedAccountMapEntry<T: IndexValue> {
     Entry(AccountMapEntry<T>),
-    Raw((Slot, T)),
+    Raw(Pubkey, (Slot, T)),
 }
 
 impl<T: IndexValue> ZeroLamport for PreAllocatedAccountMapEntry<T> {
@@ -401,7 +405,7 @@ impl<T: IndexValue> ZeroLamport for PreAllocatedAccountMapEntry<T> {
             PreAllocatedAccountMapEntry::Entry(entry) => {
                 entry.slot_list.read().unwrap()[0].1.is_zero_lamport()
             }
-            PreAllocatedAccountMapEntry::Raw(raw) => raw.1.is_zero_lamport(),
+            PreAllocatedAccountMapEntry::Raw(_, raw) => raw.1.is_zero_lamport(),
         }
     }
 }
@@ -410,7 +414,7 @@ impl<T: IndexValue> From<PreAllocatedAccountMapEntry<T>> for (Slot, T) {
     fn from(source: PreAllocatedAccountMapEntry<T>) -> (Slot, T) {
         match source {
             PreAllocatedAccountMapEntry::Entry(entry) => entry.slot_list.read().unwrap()[0],
-            PreAllocatedAccountMapEntry::Raw(raw) => raw,
+            PreAllocatedAccountMapEntry::Raw(_, raw) => raw,
         }
     }
 }
@@ -421,19 +425,21 @@ impl<T: IndexValue> PreAllocatedAccountMapEntry<T> {
     /// 2. update(slot, account_info)
     /// This code is called when the first entry [ie. (slot,account_info)] for a pubkey is inserted into the index.
     pub fn new<U: DiskIndexValue + From<T> + Into<T>>(
+        account_key: &Pubkey,
         slot: Slot,
         account_info: T,
         storage: &Arc<BucketMapHolder<T, U>>,
         store_raw: bool,
     ) -> PreAllocatedAccountMapEntry<T> {
         if store_raw {
-            Self::Raw((slot, account_info))
+            Self::Raw(account_key.clone(), (slot, account_info))
         } else {
-            Self::Entry(Self::allocate(slot, account_info, storage))
+            Self::Entry(Self::allocate(account_key, slot, account_info, storage))
         }
     }
 
     fn allocate<U: DiskIndexValue + From<T> + Into<T>>(
+        account_key: &Pubkey,
         slot: Slot,
         account_info: T,
         storage: &Arc<BucketMapHolder<T, U>>,
@@ -445,6 +451,7 @@ impl<T: IndexValue> PreAllocatedAccountMapEntry<T> {
             vec![(slot, account_info)],
             ref_count,
             meta,
+            account_key,
         ))
     }
 
@@ -454,7 +461,7 @@ impl<T: IndexValue> PreAllocatedAccountMapEntry<T> {
     ) -> AccountMapEntry<T> {
         match self {
             Self::Entry(entry) => entry,
-            Self::Raw((slot, account_info)) => Self::allocate(slot, account_info, storage),
+            Self::Raw(account_key, (slot, account_info)) => Self::allocate(&account_key, slot, account_info, storage),
         }
     }
 }
@@ -1709,6 +1716,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
                     .into_iter()
                     .for_each(|(pubkey, (slot, account_info))| {
                         let new_entry = PreAllocatedAccountMapEntry::new(
+                            &pubkey,
                             slot,
                             account_info,
                             &self.storage.storage,
@@ -1781,6 +1789,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
         //  So, what the accounts_index sees alone is sufficient as a source of truth for other non-scan
         //  account operations.
         let new_item = PreAllocatedAccountMapEntry::new(
+            pubkey,
             new_slot,
             account_info,
             &self.storage.storage,
