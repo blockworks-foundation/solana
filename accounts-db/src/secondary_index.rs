@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use sled::Db;
 use {
     dashmap::{mapref::entry::Entry::Occupied, DashMap},
     log::*,
@@ -99,11 +101,26 @@ impl SecondaryIndexEntry for RwLockSecondaryIndexEntry {
     }
 }
 
-#[derive(Debug, Default)]
+
+#[derive(Debug, Clone)]
+struct FooSled<K, V> {
+    sled_tree: Arc<typed_sled::Tree<K, V>>,
+}
+
+impl<K, V> FooSled<K, V> {
+    fn new() -> Self {
+        let db = Arc::new(sled::open("secondary-index-groovie-sled").unwrap());
+        let tree = typed_sled::Tree::<K, V>::open(&db, "secondary-foo");
+
+        Self { sled_tree: Arc::new(tree) }
+    }
+}
+
+#[derive(Debug)]
 pub struct SecondaryIndex<SecondaryIndexEntryType: SecondaryIndexEntry + Default + Sync + Send> {
     metrics_name: &'static str,
     // Map from index keys to index values
-    pub index: DashMap<Pubkey, SecondaryIndexEntryType>,
+    pub index: FooSled<Pubkey, SecondaryIndexEntryType>,
     pub reverse_index: DashMap<Pubkey, SecondaryReverseIndexEntry>,
     stats: SecondaryIndexStats,
 }
