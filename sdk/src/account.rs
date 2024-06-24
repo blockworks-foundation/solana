@@ -1,5 +1,6 @@
 //! The Solana [`Account`] type.
 
+use logger::info;
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::qualifiers;
 use {
@@ -562,6 +563,8 @@ impl AccountSharedData {
     }
 
     pub fn set_data_from_slice(&mut self, new_data: &[u8]) {
+        // find if we can use fastcpy here
+        info!("calling set_data_from_slice with sie {}", new_data.len());
         // If the buffer isn't shared, we're going to memcpy in place.
         let Some(data) = Arc::get_mut(&mut self.data) else {
             // If the buffer is shared, the cheapest thing to do is to clone the
