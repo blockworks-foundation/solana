@@ -1,3 +1,4 @@
+use rust_debugging_locks::debugging_locks::RwLockWrapped;
 use {
     crate::{
         accounts_index_storage::{AccountsIndexStorage, Startup},
@@ -36,7 +37,7 @@ use {
         path::PathBuf,
         sync::{
             atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering},
-            Arc, Mutex, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard,
+            Arc, Mutex, OnceLock, RwLockReadGuard, RwLockWriteGuard,
         },
     },
     thiserror::Error,
@@ -279,7 +280,7 @@ pub struct AccountMapEntryInner<T> {
     /// list of slots in which this pubkey was updated
     /// Note that 'clean' removes outdated entries (ie. older roots) from this slot_list
     /// purge_slot() also removes non-rooted slots from this list
-    pub slot_list: RwLock<SlotList<T>>,
+    pub slot_list: RwLockWrapped<SlotList<T>>,
     /// synchronization metadata for in-memory state since last flush to disk accounts index
     pub meta: AccountMapEntryMeta,
 }
@@ -287,7 +288,7 @@ pub struct AccountMapEntryInner<T> {
 impl<T: IndexValue> AccountMapEntryInner<T> {
     pub fn new(slot_list: SlotList<T>, ref_count: RefCount, meta: AccountMapEntryMeta) -> Self {
         Self {
-            slot_list: RwLock::new(slot_list),
+            slot_list: RwLockWrapped::new(slot_list),
             ref_count: AtomicU64::new(ref_count),
             meta,
         }
@@ -690,8 +691,8 @@ pub struct AccountsIndex<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> {
     program_id_index: SecondaryIndex<DashMapSecondaryIndexEntry>,
     spl_token_mint_index: SecondaryIndex<DashMapSecondaryIndexEntry>,
     spl_token_owner_index: SecondaryIndex<RwLockSecondaryIndexEntry>,
-    pub roots_tracker: RwLock<RootsTracker>,
-    ongoing_scan_roots: RwLock<BTreeMap<Slot, u64>>,
+    pub roots_tracker: RwLockWrapped<RootsTracker>,
+    ongoing_scan_roots: RwLockWrapped<BTreeMap<Slot, u64>>,
     // Each scan has some latest slot `S` that is the tip of the fork the scan
     // is iterating over. The unique id of that slot `S` is recorded here (note we don't use
     // `S` as the id because there can be more than one version of a slot `S`). If a fork
@@ -744,8 +745,8 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
             spl_token_owner_index: SecondaryIndex::<RwLockSecondaryIndexEntry>::new(
                 "spl_token_owner_index_stats",
             ),
-            roots_tracker: RwLock::<RootsTracker>::default(),
-            ongoing_scan_roots: RwLock::<BTreeMap<Slot, u64>>::default(),
+            roots_tracker: RwLockWrapped::<RootsTracker>::default(),
+            ongoing_scan_roots: RwLockWrapped::<BTreeMap<Slot, u64>>::default(),
             removed_bank_ids: Mutex::<HashSet<BankId>>::default(),
             storage,
             scan_results_limit_bytes,
@@ -2068,7 +2069,7 @@ pub mod tests {
     };
 
     pub enum SecondaryIndexTypes<'a> {
-        RwLock(&'a SecondaryIndex<RwLockSecondaryIndexEntry>),
+        RwLockWrapped(&'a SecondaryIndex<RwLockSecondaryIndexEntry>),
         DashMap(&'a SecondaryIndex<DashMapSecondaryIndexEntry>),
     }
 
@@ -2104,7 +2105,7 @@ pub mod tests {
         {
             // Check that we're actually testing the correct variant
             let index = AccountsIndex::<bool, bool>::default_for_tests();
-            let _type_check = SecondaryIndexTypes::RwLock(&index.spl_token_owner_index);
+            let _type_check = SecondaryIndexTypes::RwLockWrapped(&index.spl_token_owner_index);
         }
 
         (
