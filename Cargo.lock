@@ -4708,8 +4708,7 @@ dependencies = [
 [[package]]
 name = "rust-debugging-locks"
 version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "feb12ff025f7398bc15cdd0245a0c45b026feb250b5b0528c80e91a7d950c384"
+source = "git+https://github.com/grooviegermanikus/rust-debugging-locks.git?tag=v0.8.10#a8cacb3c25810ab5adc3a676053a3b2189c91ca9"
 dependencies = [
  "backtrace",
  "base58",

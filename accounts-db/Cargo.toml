@@ -64,7 +64,7 @@ tar = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 
-rust-debugging-locks = "0.8.9"
+rust-debugging-locks = { git = "https://github.com/grooviegermanikus/rust-debugging-locks.git", tag = "v0.8.10" }
 
 [lib]
 crate-type = ["lib"]
