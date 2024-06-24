@@ -1,3 +1,6 @@
+[profile.release]
+debug = true
+
 [package]
 name = "solana-accounts-db"
 description = "Solana accounts db"
@@ -60,6 +63,8 @@ strum_macros = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
+
+rust-debugging-locks = "0.8.9"
 
 [lib]
 crate-type = ["lib"]
