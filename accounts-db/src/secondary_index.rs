@@ -1,3 +1,4 @@
+use rust_debugging_locks::debugging_locks::RwLockWrapped;
 use {
     dashmap::{mapref::entry::Entry::Occupied, DashMap},
     log::*,
@@ -7,7 +8,6 @@ use {
         fmt::Debug,
         sync::{
             atomic::{AtomicU64, Ordering},
-            RwLock,
         },
     },
 };
@@ -16,7 +16,7 @@ use {
 // if the key had different account data for the indexed key across different
 // slots. As this is rare, it should be ok to use a Vec here over a HashSet, even
 // though we are running some key existence checks.
-pub type SecondaryReverseIndexEntry = RwLock<Vec<Pubkey>>;
+pub type SecondaryReverseIndexEntry = RwLockWrapped<Vec<Pubkey>>;
 
 pub trait SecondaryIndexEntry: Debug {
     fn insert_if_not_exists(&self, key: &Pubkey, inner_keys_count: &AtomicU64);
@@ -69,7 +69,7 @@ impl SecondaryIndexEntry for DashMapSecondaryIndexEntry {
 
 #[derive(Debug, Default)]
 pub struct RwLockSecondaryIndexEntry {
-    account_keys: RwLock<HashSet<Pubkey>>,
+    account_keys: RwLockWrapped<HashSet<Pubkey>>,
 }
 
 impl SecondaryIndexEntry for RwLockSecondaryIndexEntry {
@@ -132,7 +132,7 @@ impl<SecondaryIndexEntryType: SecondaryIndexEntry + Default + Sync + Send>
             let outer_keys = self.reverse_index.get(inner_key).unwrap_or_else(|| {
                 self.reverse_index
                     .entry(*inner_key)
-                    .or_insert(RwLock::new(Vec::with_capacity(1)))
+                    .or_insert(RwLockWrapped::new(Vec::with_capacity(1)))
                     .downgrade()
             });
 

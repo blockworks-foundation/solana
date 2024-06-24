@@ -1,4 +1,5 @@
 use log::info;
+use rust_debugging_locks::debugging_locks::RwLockWrapped;
 use {
     crate::accounts_db::IncludeSlotInHash,
     dashmap::DashMap,
@@ -14,7 +15,7 @@ use {
         ops::Deref,
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
-            Arc, RwLock,
+            Arc,
         },
     },
 };
@@ -78,7 +79,7 @@ impl SlotCacheInner {
         let data_len = account.data().len() as u64;
         let item = Arc::new(CachedAccountInner {
             account,
-            hash: RwLock::new(hash.map(|h| *h.borrow())),
+            hash: RwLockWrapped::new(hash.map(|h| *h.borrow())),
             slot,
             pubkey: *pubkey,
             include_slot_in_hash,
@@ -146,7 +147,7 @@ pub type CachedAccount = Arc<CachedAccountInner>;
 #[derive(Debug)]
 pub struct CachedAccountInner {
     pub account: AccountSharedData,
-    hash: RwLock<Option<Hash>>,
+    hash: RwLockWrapped<Option<Hash>>,
     slot: Slot,
     pubkey: Pubkey,
     /// temporarily here during feature activation
@@ -182,7 +183,7 @@ pub struct AccountsCache {
     cache: DashMap<Slot, SlotCache>,
     // Queue of potentially unflushed roots. Random eviction + cache too large
     // could have triggered a flush of this slot already
-    maybe_unflushed_roots: RwLock<BTreeSet<Slot>>,
+    maybe_unflushed_roots: RwLockWrapped<BTreeSet<Slot>>,
     max_flushed_root: AtomicU64,
     total_size: Arc<AtomicU64>,
 }

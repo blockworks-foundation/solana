@@ -1,4 +1,5 @@
 use log::info;
+use rust_debugging_locks::debugging_locks::RwLockWrapped;
 use {
     crate::{
         accounts_index::{
@@ -19,12 +20,12 @@ use {
         ops::{Bound, RangeBounds, RangeInclusive},
         sync::{
             atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
-            Arc, Mutex, RwLock, RwLockWriteGuard,
+            Arc, Mutex, RwLockWriteGuard,
         },
     },
 };
 type K = Pubkey;
-type CacheRangesHeld = RwLock<Vec<RangeInclusive<Pubkey>>>;
+type CacheRangesHeld = RwLockWrapped<Vec<RangeInclusive<Pubkey>>>;
 
 type InMemMap<T> = HashMap<Pubkey, AccountMapEntry<T>>;
 
@@ -93,7 +94,7 @@ pub struct InMemAccountsIndex<T: IndexValue, U: DiskIndexValue + From<T> + Into<
     last_age_flushed: AtomicU8,
 
     // backing store
-    map_internal: RwLock<InMemMap<T>>,
+    map_internal: RwLockWrapped<InMemMap<T>>,
     storage: Arc<BucketMapHolder<T, U>>,
     bin: usize,
 
@@ -112,7 +113,7 @@ pub struct InMemAccountsIndex<T: IndexValue, U: DiskIndexValue + From<T> + Into<
     startup_info: StartupInfo<T, U>,
 
     /// possible evictions for next few slots coming up
-    possible_evictions: RwLock<PossibleEvictions<T>>,
+    possible_evictions: RwLockWrapped<PossibleEvictions<T>>,
 
     /// how many more ages to skip before this bucket is flushed (as opposed to being skipped).
     /// When this reaches 0, this bucket is flushed.
@@ -169,7 +170,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> InMemAccountsIndex<T,
     pub fn new(storage: &Arc<BucketMapHolder<T, U>>, bin: usize) -> Self {
         let num_ages_to_distribute_flushes = Age::MAX - storage.ages_to_stay_in_cache;
         Self {
-            map_internal: RwLock::default(),
+            map_internal: RwLockWrapped::default(),
             storage: Arc::clone(storage),
             bin,
             bucket: storage
@@ -184,7 +185,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> InMemAccountsIndex<T,
             // initialize this to max, to make it clear we have not flushed at age 0, the starting age
             last_age_flushed: AtomicU8::new(Age::MAX),
             startup_info: StartupInfo::default(),
-            possible_evictions: RwLock::new(PossibleEvictions::new(1)),
+            possible_evictions: RwLockWrapped::new(PossibleEvictions::new(1)),
             // Spread out the scanning across all ages within the window.
             // This causes us to scan 1/N of the bins each 'Age'
             remaining_ages_to_skip_flushing: AtomicU8::new(
