@@ -61,9 +61,6 @@ tar = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 
-sled = "0.34.7"
-typed-sled = "0.2.3"
-
 [lib]
 crate-type = ["lib"]
 name = "solana_accounts_db"
