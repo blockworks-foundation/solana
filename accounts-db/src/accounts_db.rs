@@ -12179,6 +12179,7 @@ pub mod tests {
                         found_accounts.insert(*account.unwrap().0);
                     },
                     &ScanConfig::default(),
+                    false,
                 )
                 .unwrap();
             assert!(!used_index);
@@ -12199,6 +12200,7 @@ pub mod tests {
                         found_accounts.insert(*account.unwrap().0);
                     },
                     &ScanConfig::default(),
+                    false,
                 )
                 .unwrap();
             assert!(used_index);
