@@ -86,7 +86,7 @@ pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) ->
 }
 
 #[derive(Clone)]
-pub (crate) struct PrefixHasher { 
+pub struct PrefixHasher {
   hash: u64
 }
 

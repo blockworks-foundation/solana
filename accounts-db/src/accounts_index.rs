@@ -1,3 +1,4 @@
+use std::time::Instant;
 use {
     crate::{
         accounts_index_storage::{AccountsIndexStorage, Startup}, accounts_partition::RentPayingAccountsByPartition, ancestors::Ancestors, bucket_map_holder::{Age, BucketMapHolder}, compressed_secondary_index::{self, CompressedSecondaryIndex}, contains::Contains, in_mem_accounts_index::{InMemAccountsIndex, InsertNewEntryResults, StartupStats}, inline_spl_token::{self, GenericTokenAccount}, inline_spl_token_2022, pubkey_bins::PubkeyBinCalculator24, rolling_bit_field::RollingBitField, secondary_index::*
@@ -1161,6 +1162,8 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
     ) where
         F: FnMut(&Pubkey, (&T, Slot)),
     {
+        let started_at = Instant::now();
+        info!("Scanning compressed secondary index for key {:?}", index_key);
         // TODO: port metrics from do_scan_accounts
 
         // size: num of account keys per index_key
@@ -1168,21 +1171,25 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
         // pre-sort prefixes, so they have the same order as bins
         // TODO mabye store in a sorted structure OR sort on update OR sort on read
         prefix_sorted_list.sort();
-        info!("using prefix_set of size {:?} for secondary scan", prefix_sorted_list.len());
 
         // TODO: measure the impact of grouping prefixes to less significant bytes (or whole bins)
 
+        let mut cnt_matches = 0;
 
+        info!("using prefix_set of size {:?} for secondary scan", prefix_sorted_list.len());
         // iterating all bins is now a monotonic scan
         for prefix in prefix_sorted_list {
             let bin_index: usize = self.bin_calculator.bin_from_u64_prefix(prefix);
+            // FIXME looks wrong
             let lock = &self.account_maps[bin_index];
             let range = prefix_to_bound(prefix);
             // NOTE: quite sure hold_range_in_memory overhead dominates for point-range invocation
             let entries = lock.items(&range);
-            for (pubkey, list) in entries {
-                let list_r = &list.slot_list.read().unwrap();
+            info!("Scanning bin index at {:?} with range {:?}, {} entries", bin_index, range, entries.len());
+            for (pubkey, entry) in entries {
+                let list_r = &entry.slot_list.read().unwrap();
                 if let Some(index) = self.latest_slot(Some(ancestors), list_r, max_root) {
+                    cnt_matches += 1;
                     func(&pubkey, (&list_r[index].1, list_r[index].0));
                 }
                 if config.is_aborted() {
@@ -1190,6 +1197,8 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
                 }
             }
         }
+
+        info!("Scanning compressed secondary index for key {:?} took {:?} and found {} matches", index_key, started_at.elapsed(), cnt_matches);
     }
 
     pub fn get_account_read_entry(&self, pubkey: &Pubkey) -> Option<ReadAccountMapEntry<T>> {
@@ -1312,13 +1321,17 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
     where
         F: FnMut(&Pubkey, (&T, Slot)),
     {
+        info!("note: using Compressed index for key {:?}", index_key);
+        let scan_type = ScanTypes::<Range<Pubkey>>::Compressed(index_key);
+        // let scan_type = ScanTypes::<Range<Pubkey>>::Indexed(index_key);
+
         // Pass "" not to log metrics, so RPC doesn't get spammy
         self.do_checked_scan_accounts(
             "",
             ancestors,
             scan_bank_id,
             func,
-            ScanTypes::<Range<Pubkey>>::Indexed(index_key),
+            scan_type,
             config,
         )
     }
