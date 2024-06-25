@@ -43,7 +43,7 @@ impl PubkeyBinCalculator24 {
     }
 
     pub(crate) fn bin_from_u64_prefix(&self, prefix: u64) -> usize {
-        // ((val as u32) >> self.shift_bits) & 0xffffff
+        // TODO simplify ((val as u32) >> self.shift_bits) & 0xffffff
         let as_ref = prefix.as_bytes();
         ((as_ref[0] as usize) << 16 | (as_ref[1] as usize) << 8 | (as_ref[2] as usize))
             >> self.shift_bits

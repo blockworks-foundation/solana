@@ -30,6 +30,7 @@ use {
     },
     thiserror::Error,
 };
+use crate::compressed_secondary_index::prefix_to_bound;
 
 pub const ITER_BATCH_SIZE: usize = 1000;
 pub const BINS_DEFAULT: usize = 8192;
@@ -671,6 +672,7 @@ pub struct AccountsIndex<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> {
     program_id_index: SecondaryIndex<DashMapSecondaryIndexEntry>,
     spl_token_mint_index: SecondaryIndex<DashMapSecondaryIndexEntry>,
     spl_token_owner_index: SecondaryIndex<RwLockSecondaryIndexEntry>,
+    compressed_index: CompressedSecondaryIndex,
     pub roots_tracker: RwLock<RootsTracker>,
     ongoing_scan_roots: RwLock<BTreeMap<Slot, u64>>,
     // Each scan has some latest slot `S` that is the tip of the fork the scan
@@ -725,6 +727,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
             spl_token_owner_index: SecondaryIndex::<RwLockSecondaryIndexEntry>::new(
                 "spl_token_owner_index_stats",
             ),
+            compressed_index: CompressedSecondaryIndex::new(),
             roots_tracker: RwLock::<RootsTracker>::default(),
             ongoing_scan_roots: RwLock::<BTreeMap<Slot, u64>>::default(),
             removed_bank_ids: Mutex::<HashSet<BankId>>::default(),
@@ -977,12 +980,13 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
                     config,
                 );
             }
-            ScanTypes::Compressed(IndexKey(index_key)) => {
+            // TODO make it work for all IndexKeys
+            ScanTypes::Compressed(IndexKey::ProgramId(owner_key)) => {
                 self.do_scan_compressed_secondary_index(
                     ancestors,
                     func,
                     &self.compressed_index,
-                    index_key,
+                    &owner_key,
                     Some(max_root),
                     config
                 );
@@ -1136,8 +1140,9 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
     {
         // TODO: port metrics from do_scan_accounts
 
-        let prefix_set = index.get(index_key);
+        let mut prefix_set = index.get(index_key);
         // pre-sort prefixes, so they have the same order as bins
+        // TODO mabye store in a sorted structure OR sort on update OR sort on read
         prefix_set.sort();
 
         // TODO: measure the impact of grouping prefixes to less significant bytes (or whole bins)
@@ -1149,7 +1154,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
             let range = prefix_to_bound(prefix);
             // NOTE: quite sure hold_range_in_memory overhead dominates for point-range invocation
             let entries = lock.items(&range);
-            for (pk, list) in entries {
+            for (pubkey, list) in entries {
                 let list_r = &list.slot_list.read().unwrap();
                 if let Some(index) = self.latest_slot(Some(ancestors), list_r, max_root) {
                     func(&pubkey, (&list_r[index].1, list_r[index].0));

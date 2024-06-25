@@ -1,6 +1,6 @@
 use std::{fmt, hash::Hasher, mem::transmute, ops::RangeBounds};
 use std::fmt::{Debug, Formatter};
-use std::ops::Bound;
+use std::ops::{Bound, RangeFull, RangeInclusive};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bv::BitsExt;
@@ -25,24 +25,35 @@ pub (crate) fn u64_prefix_raw(msg: &[u8]) -> u64 {
   }
 }
 
-pub (crate) fn prefix_to_pubkey(p: u64) -> Pubkey {
+// smallest pubkey in group
+pub (crate) fn prefix_to_pubkey_smallest(p: u64) -> Pubkey {
   let mut bytes = [0u8; 32];
   bytes[0..8].copy_from_slice(&p.to_ne_bytes());
   Pubkey::new_from_array(bytes)
 }
 
-pub (crate) fn prefix_to_bound(p: u64) -> RangeBounds<Pubkey> {
-  let begin = Bound::Included(prefix_to_pubkey(p));
-  let end = if p < u64::MAX {
-    Bound::Excluded(prefix_to_pubkey(p+1))
-  } else {
-    Bound::Included(Pubkey::from([1u8; 32]))
-  };
-  return RangeBounds::new(begin, end)
+pub (crate) fn prefix_to_pubkey_largest_in_group(p: u64) -> Pubkey {
+    let mut bytes = [255u8; 32];
+    bytes[0..8].copy_from_slice(&p.to_ne_bytes());
+    Pubkey::new_from_array(bytes)
+}
+
+pub(crate) fn prefix_to_bound(p: u64) -> RangeInclusive<Pubkey> {
+    let begin_incl = prefix_to_pubkey_smallest(p);
+    let end_incl = if p == u64::MAX {
+        const MAX_PUBKEY: Pubkey = Pubkey::from([255u8; 32]);
+        MAX_PUBKEY
+        // // FIXME that looks wrong
+        // Bound::Included(Pubkey::from([1u8; 32]))
+    } else {
+        prefix_to_pubkey_largest_in_group(p)
+    };
+    (begin_incl..=end_incl)
 }
 
 // TODO: finish implementation
-pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) -> Vec<(RangeBounds<Pubkey>, Vec(u64))> {
+// TODO check if range should be right-open or right-closed
+pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) -> Vec<(RangeInclusive<Pubkey>, Vec(u64))> {
 
   // pre-sort prefixes, so they are easier to group
   prefix_set.sort();
@@ -59,7 +70,7 @@ pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) ->
       // start a new group
       let start = *prefix & !mask;
       let end = prefix.checked_add(group_size).map(|p| (p & !mask) - 1);
-      let range = RangeBounds::new(Bound::Included(start), Bound::Included(end.unwrap_or(u64::MAX)));
+      let range = (Bound::Included(start), Bound::Included(end.unwrap_or(u64::MAX)));
       groups.push((range, vec![]));
       last_group = prefix & mask;
     }
@@ -100,17 +111,6 @@ pub struct CompressedSecondaryIndex {
   // pub reverse_index: DashMap<u64, RwLock<Vec<u64>>, PrefixHasher>,
 }
 
-impl Default for CompressedSecondaryIndex {
-  fn default() -> Self {
-    Self {
-        metrics_name: "compressed_secondary_index",
-        stats: SecondaryIndexStats::default(),
-        index: DashMap::with_capacity_and_hasher(10000, PrefixHasher::default()),
-        // reverse_index: DashMap::new(),
-    }
-  }
-}
-
 impl Debug for CompressedSecondaryIndex {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
     f.debug_struct("CompressedSecondaryIndex")
@@ -123,10 +123,12 @@ impl Debug for CompressedSecondaryIndex {
 
 impl CompressedSecondaryIndex {
   pub fn new(metrics_name: &'static str) -> Self {
-    Self {
-        metrics_name,
-        ..Self::default()
-    }
+      Self {
+          metrics_name,
+          stats: SecondaryIndexStats::default(),
+          index: DashMap::with_capacity_and_hasher(10000, PrefixHasher::default()),
+          // reverse_index: DashMap::new(),
+      }
   }
 
   pub fn insert(&self, key: &Pubkey, inner_key: &Pubkey) {
@@ -181,7 +183,7 @@ impl CompressedSecondaryIndex {
 
   pub fn get(&self, key: &Pubkey) -> Vec<u64> {
     if let Some(prefix_set) = self.index.get(key) {
-        prefix_set.keys()
+        prefix_set.iter().map(|x| *x).collect()
     } else {
         vec![]
     }
