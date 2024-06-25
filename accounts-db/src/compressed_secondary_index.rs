@@ -1,5 +1,6 @@
 use std::{fmt, hash::Hasher, mem::transmute, ops::RangeBounds};
 use std::fmt::{Debug, Formatter};
+use std::hash::BuildHasher;
 use std::ops::{Bound, RangeFull, RangeInclusive};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -84,8 +85,23 @@ pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) ->
   groups
 }
 
+#[derive(Clone)]
 pub (crate) struct PrefixHasher { 
   hash: u64
+}
+
+impl Default for PrefixHasher {
+  fn default() -> Self {
+      Self { hash: 0xDEADBEEF }
+  }
+}
+
+impl BuildHasher for PrefixHasher {
+  type Hasher = PrefixHasher;
+
+  fn build_hasher(&self) -> Self::Hasher {
+      PrefixHasher::default()
+  }
 }
 
 // TODO: read hashbrown::hash_map
@@ -120,7 +136,6 @@ impl Debug for CompressedSecondaryIndex {
     f.debug_struct("CompressedSecondaryIndex")
       .field("metrics_name", &self.metrics_name)
       .field("stats", &self.stats)
-      .field("index.len", &self.index.len())
       .finish()
   }
 }
@@ -130,7 +145,7 @@ impl CompressedSecondaryIndex {
       Self {
           metrics_name,
           stats: SecondaryIndexStats::default(),
-          index: DashMap::with_capacity_and_hasher(10000, PrefixHasher::default()),
+          index: DashMap::default(),
           // reverse_index: DashMap::new(),
       }
   }
