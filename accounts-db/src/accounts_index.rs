@@ -672,7 +672,9 @@ pub struct AccountsIndex<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> {
     program_id_index: SecondaryIndex<DashMapSecondaryIndexEntry>,
     spl_token_mint_index: SecondaryIndex<DashMapSecondaryIndexEntry>,
     spl_token_owner_index: SecondaryIndex<RwLockSecondaryIndexEntry>,
-    compressed_index: CompressedSecondaryIndex,
+    program_id_compressed_index: CompressedSecondaryIndex,
+    spl_token_mint_compressed_index: CompressedSecondaryIndex,
+    spl_token_owner_compressed_index: CompressedSecondaryIndex,
     pub roots_tracker: RwLock<RootsTracker>,
     ongoing_scan_roots: RwLock<BTreeMap<Slot, u64>>,
     // Each scan has some latest slot `S` that is the tip of the fork the scan
@@ -727,7 +729,9 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
             spl_token_owner_index: SecondaryIndex::<RwLockSecondaryIndexEntry>::new(
                 "spl_token_owner_index_stats",
             ),
-            compressed_index: CompressedSecondaryIndex::new("compressed_index_stats"),
+            program_id_compressed_index: CompressedSecondaryIndex::new("program_id_compressed_index_stats"),
+            spl_token_mint_compressed_index: CompressedSecondaryIndex::new("spl_token_mint_compressed_index_stats"),
+            spl_token_owner_compressed_index: CompressedSecondaryIndex::new("spl_token_owner_compressed_index_stats"),
             roots_tracker: RwLock::<RootsTracker>::default(),
             ongoing_scan_roots: RwLock::<BTreeMap<Slot, u64>>::default(),
             removed_bank_ids: Mutex::<HashSet<BankId>>::default(),
@@ -980,12 +984,31 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
                     config,
                 );
             }
-            // TODO make it work for all IndexKeys
-            ScanTypes::Compressed(IndexKey::ProgramId(owner_key)) => {
+            ScanTypes::Compressed(IndexKey::ProgramId(program_id)) => {
                 self.do_scan_compressed_secondary_index(
                     ancestors,
                     func,
-                    &self.compressed_index,
+                    &self.program_id_compressed_index,
+                    &program_id,
+                    Some(max_root),
+                    config
+                );
+            }
+            ScanTypes::Compressed(IndexKey::SplTokenMint(mint_key)) => {
+                self.do_scan_compressed_secondary_index(
+                    ancestors,
+                    func,
+                    &self.spl_token_mint_compressed_index,
+                    &mint_key,
+                    Some(max_root),
+                    config
+                );
+            }
+            ScanTypes::Compressed(IndexKey::SplTokenOwner(owner_key)) => {
+                self.do_scan_compressed_secondary_index(
+                    ancestors,
+                    func,
+                    &self.spl_token_owner_compressed_index,
                     &owner_key,
                     Some(max_root),
                     config
@@ -1140,6 +1163,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
     {
         // TODO: port metrics from do_scan_accounts
 
+        // size: num of account keys per index_key
         let mut prefix_sorted_list = index.get(index_key);
         // pre-sort prefixes, so they have the same order as bins
         // TODO mabye store in a sorted structure OR sort on update OR sort on read
@@ -1535,6 +1559,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
                 if let Some(owner_key) = G::unpack_account_owner(account_data) {
                     if account_indexes.include_key(owner_key) {
                         self.spl_token_owner_index.insert(owner_key, pubkey);
+                        self.spl_token_owner_compressed_index.insert(owner_key, pubkey);
                     }
                 }
             }
@@ -1543,6 +1568,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
                 if let Some(mint_key) = G::unpack_account_mint(account_data) {
                     if account_indexes.include_key(mint_key) {
                         self.spl_token_mint_index.insert(mint_key, pubkey);
+                        self.spl_token_mint_compressed_index.insert(mint_key, pubkey);
                     }
                 }
             }
@@ -1598,7 +1624,9 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
             && account_indexes.include_key(account_owner)
         {
             self.program_id_index.insert(account_owner, pubkey);
+            self.program_id_compressed_index.insert(account_owner, pubkey);
         }
+
         // Note because of the below check below on the account data length, when an
         // account hits zero lamports and is reset to AccountSharedData::Default, then we skip
         // the below updates to the secondary indexes.

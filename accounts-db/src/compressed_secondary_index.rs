@@ -43,7 +43,7 @@ pub (crate) fn prefix_to_pubkey_largest_in_group(p: u64) -> Pubkey {
 pub(crate) fn prefix_to_bound(p: u64) -> RangeInclusive<Pubkey> {
     let begin_incl = prefix_to_pubkey_smallest(p);
     let end_incl = if p == u64::MAX {
-        const MAX_PUBKEY: Pubkey = Pubkey::from([255u8; 32]);
+        const MAX_PUBKEY: Pubkey = Pubkey::new_from_array([255u8; 32]);
         MAX_PUBKEY
         // // FIXME that looks wrong
         // Bound::Included(Pubkey::from([1u8; 32]))
