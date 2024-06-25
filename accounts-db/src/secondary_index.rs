@@ -29,8 +29,8 @@ pub trait SecondaryIndexEntry: Debug {
 
 #[derive(Debug, Default)]
 pub struct SecondaryIndexStats {
-    last_report: AtomicInterval,
-    num_inner_keys: AtomicU64,
+    pub last_report: AtomicInterval,
+    pub num_inner_keys: AtomicU64,
 }
 
 #[derive(Debug, Default)]

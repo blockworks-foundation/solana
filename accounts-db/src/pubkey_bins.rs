@@ -1,8 +1,10 @@
 use solana_sdk::pubkey::Pubkey;
+use crate::compressed_secondary_index::u64_prefix_pubkey;
 
 #[derive(Debug)]
 pub struct PubkeyBinCalculator24 {
     // how many bits from the first 2 bytes to shift away to ignore when calculating bin
+    // TODO is it "2 bytes" or "3 bytes"?
     shift_bits: u32,
 }
 
@@ -31,15 +33,23 @@ impl PubkeyBinCalculator24 {
     #[inline]
     pub(crate) fn bin_from_pubkey(&self, pubkey: &Pubkey) -> usize {
         let as_ref = pubkey.as_ref();
+        let bin = ((as_ref[0] as usize) << 16 | (as_ref[1] as usize) << 8 | (as_ref[2] as usize))
+            >> self.shift_bits;
+
+        // FIXME remove + implement as test
+        let bin_from_prefix = self.bin_from_u64_prefix(self.u64_prefix_pubkey(pubkey));
+        assert_eq!(bin, bin_from_prefix);
+        bin
+    }
+
+    pub(crate) fn bin_from_u64_prefix(&self, prefix: u64) -> usize {
+        // ((val as u32) >> self.shift_bits) & 0xffffff
+        let as_ref = prefix.as_bytes();
         ((as_ref[0] as usize) << 16 | (as_ref[1] as usize) << 8 | (as_ref[2] as usize))
             >> self.shift_bits
     }
 
-    pub(crate) fn bin_from_u64_prefix(&self, prefix: u64) -> usize {
-        let as_ref = u64.as_bytes();
-        ((as_ref[0] as usize) << 16 | (as_ref[1] as usize) << 8 | (as_ref[2] as usize))
-            >> self.shift_bits
-    }
+
 
     #[cfg(test)]
     pub(crate) fn lowest_pubkey_from_bin(&self, mut bin: usize, bins: usize) -> Pubkey {
