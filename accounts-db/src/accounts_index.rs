@@ -1140,16 +1140,18 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
     {
         // TODO: port metrics from do_scan_accounts
 
-        let mut prefix_set = index.get(index_key);
+        let mut prefix_sorted_list = index.get(index_key);
         // pre-sort prefixes, so they have the same order as bins
         // TODO mabye store in a sorted structure OR sort on update OR sort on read
-        prefix_set.sort();
+        prefix_sorted_list.sort();
+        info!("using prefix_set of size {:?} for secondary scan", prefix_sorted_list.len());
 
         // TODO: measure the impact of grouping prefixes to less significant bytes (or whole bins)
 
+
         // iterating all bins is now a monotonic scan
-        for prefix in prefix_set {
-            let bin_index: usize = self.bin_calculator().bin_from_u64_prefix();
+        for prefix in prefix_sorted_list {
+            let bin_index: usize = self.bin_calculator.bin_from_u64_prefix(prefix);
             let lock = &self.account_maps[bin_index];
             let range = prefix_to_bound(prefix);
             // NOTE: quite sure hold_range_in_memory overhead dominates for point-range invocation

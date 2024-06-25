@@ -17,11 +17,12 @@ pub (crate) fn u64_prefix_pubkey(pubkey: &Pubkey) -> u64 {
 // TODO bench+improve; check if 0..8 is significant
 pub (crate) fn u64_prefix_raw(msg: &[u8]) -> u64 {
   if msg.len() >= 8 {
-    u64::from_ne_bytes(*msg[0..8])
+      // TODO check endianness
+    u64::from_be_bytes(msg.try_into().unwrap())
   } else {
     let mut pad = [0u8; 8];
     pad[0..msg.len()].copy_from_slice(msg);
-    u64::from_ne_bytes(pad)
+    u64::from_be_bytes(pad)
   }
 }
 
@@ -53,7 +54,8 @@ pub(crate) fn prefix_to_bound(p: u64) -> RangeInclusive<Pubkey> {
 
 // TODO: finish implementation
 // TODO check if range should be right-open or right-closed
-pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) -> Vec<(RangeInclusive<Pubkey>, Vec<u64>)> {
+// e.g. (group_size_bits=4): 0x1122, 0x1133, 0x1201 -> [0x1100-0x11FF,0x1200-0x12FF]
+pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) -> Vec<(RangeInclusive<u64>, Vec<u64>)> {
 
   // pre-sort prefixes, so they are easier to group
   prefix_set.sort();
@@ -62,7 +64,7 @@ pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) ->
   let mask = group_size - 1;
 
   // TODO there's a second upper bound defined by group_size
-  let mut groups = Vec::new_with_capacity(prefix_set.len());
+  let mut groups = Vec::with_capacity(prefix_set.len());
 
   let mut last_group = 0;
   for prefix in prefix_set {
@@ -70,12 +72,14 @@ pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) ->
       // start a new group
       let start = *prefix & !mask;
       let end = prefix.checked_add(group_size).map(|p| (p & !mask) - 1);
-      let range = (Bound::Included(start), Bound::Included(end.unwrap_or(u64::MAX)));
+        let range = start..=end.unwrap_or(u64::MAX);
       groups.push((range, vec![]));
-      last_group = prefix & mask;
+      last_group = *prefix & mask;
     }
 
-    groups.last().unwrap().1.push(prefix);
+      // TODO optimized
+      let mut group = groups.last_mut().unwrap();
+      group.1.push(*prefix);
   }
   groups
 }
