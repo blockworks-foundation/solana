@@ -54,7 +54,7 @@ pub(crate) fn prefix_to_bound(p: u64) -> RangeInclusive<Pubkey> {
 
 // TODO: finish implementation
 // TODO check if range should be right-open or right-closed
-// e.g. (group_size_bits=4): 0x1122, 0x1133, 0x1201 -> [0x1100-0x11FF,0x1200-0x12FF]
+// e.g. (group_size_bits=8): 0x1223, 0x1133, 0x1201 -> [0x1100-0x11FF,0x1200-0x12FF]
 pub (crate) fn group_prefixes(prefix_set: &mut Vec<u64>, group_size_bits: u8) -> Vec<(RangeInclusive<u64>, Vec<u64>)> {
 
   // pre-sort prefixes, so they are easier to group
