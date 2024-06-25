@@ -36,19 +36,18 @@ impl PubkeyBinCalculator24 {
         let bin = ((as_ref[0] as usize) << 16 | (as_ref[1] as usize) << 8 | (as_ref[2] as usize))
             >> self.shift_bits;
 
-        // FIXME remove + implement as test
-        let bin_from_prefix = self.bin_from_u64_prefix(self.u64_prefix_pubkey(pubkey));
-        assert_eq!(bin, bin_from_prefix);
+        // // FIXME remove + implement as test
+        // let bin_from_prefix = self.bin_from_u64_prefix(self.u64_prefix_pubkey(pubkey));
+        // assert_eq!(bin, bin_from_prefix);
         bin
     }
 
     pub(crate) fn bin_from_u64_prefix(&self, prefix: u64) -> usize {
         // TODO simplify ((val as u32) >> self.shift_bits) & 0xffffff
-        let as_ref = prefix.as_bytes();
+        let as_ref = u64::to_be_bytes(prefix);
         ((as_ref[0] as usize) << 16 | (as_ref[1] as usize) << 8 | (as_ref[2] as usize))
             >> self.shift_bits
     }
-
 
 
     #[cfg(test)]
