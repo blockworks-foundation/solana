@@ -418,6 +418,10 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
+    fn skip_statup_notifications(&self) -> bool {
+        true
+    }
+
     /// Check if the plugin is interested in account data
     /// Default is true -- if the plugin is not interested in
     /// account data, please return false.

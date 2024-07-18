@@ -27,7 +27,7 @@ use {
         pubkey::Pubkey,
         slot_hashes::SlotHashes,
         transaction::{Result, SanitizedTransaction, TransactionAccountLocks, TransactionError},
-        transaction_context::{IndexOfAccount, TransactionAccount},
+        transaction_context::{IndexOfAccount, TransactionAccount, TransactionAccountCompressed},
     },
     std::{
         cmp::Reverse,
@@ -321,6 +321,21 @@ impl Accounts {
         }
     }
 
+    fn load_while_filtering_compressed<F: Fn(&AccountSharedData) -> bool>(
+        collector: &mut Vec<TransactionAccountCompressed>,
+        some_account_tuple: Option<(&Pubkey, AccountSharedData, Slot)>,
+        filter: F,
+    ) {
+        if let Some((pk, account)) = some_account_tuple
+            .filter(|(_, account, _)| Self::is_loadable(account.lamports()) && filter(account))
+            .map(|(pubkey, account, _slot)| (*pubkey, account))
+        {
+            let src = bincode::serialize(&account).unwrap();
+            let compressed = lz4::block::compress(&src, Some(lz4::block::CompressionMode::FAST(3)), true).unwrap();
+            collector.push((pk, compressed))
+        }
+    }
+
     fn load_with_slot(
         collector: &mut Vec<PubkeyAccountSlot>,
         some_account_tuple: Option<(&Pubkey, AccountSharedData, Slot)>,
@@ -378,6 +393,29 @@ impl Accounts {
             .map(|_| collector)
     }
 
+    pub fn load_by_program_with_filter_compressed<F: Fn(&AccountSharedData) -> bool>(
+        &self,
+        ancestors: &Ancestors,
+        bank_id: BankId,
+        program_id: &Pubkey,
+        filter: F,
+        config: &ScanConfig,
+    ) -> ScanResult<Vec<TransactionAccountCompressed>> {
+        let mut collector = Vec::new();
+        self.accounts_db
+            .scan_accounts(
+                ancestors,
+                bank_id,
+                |some_account_tuple| {
+                    Self::load_while_filtering_compressed(&mut collector, some_account_tuple, |account| {
+                        account.owner() == program_id && filter(account)
+                    })
+                },
+                config,
+            )
+            .map(|_| collector)
+    }
+
     fn calc_scan_result_size(account: &AccountSharedData) -> usize {
         account.data().len()
             + std::mem::size_of::<AccountSharedData>()
@@ -414,6 +452,19 @@ impl Accounts {
         }
     }
 
+    fn maybe_abort_scan_compressed(
+        result: ScanResult<Vec<TransactionAccountCompressed>>,
+        config: &ScanConfig,
+    ) -> ScanResult<Vec<TransactionAccountCompressed>> {
+        if config.is_aborted() {
+            ScanResult::Err(ScanError::Aborted(
+                "The accumulated scan results exceeded the limit".to_string(),
+            ))
+        } else {
+            result
+        }
+    }
+
     pub fn load_by_index_key_with_filter<F: Fn(&AccountSharedData) -> bool>(
         &self,
         ancestors: &Ancestors,
@@ -422,6 +473,7 @@ impl Accounts {
         filter: F,
         config: &ScanConfig,
         byte_limit_for_scan: Option<usize>,
+        just_get_program_ids: bool,
     ) -> ScanResult<Vec<TransactionAccount>> {
         let sum = AtomicUsize::default();
         let config = config.recreate_with_abort();
@@ -434,24 +486,89 @@ impl Accounts {
                 *index_key,
                 |some_account_tuple| {
                     Self::load_while_filtering(&mut collector, some_account_tuple, |account| {
-                        let use_account = filter(account);
-                        if use_account
-                            && Self::accumulate_and_check_scan_result_size(
+                        if just_get_program_ids {
+                            if Self::accumulate_and_check_scan_result_size(
                                 &sum,
                                 account,
                                 &byte_limit_for_scan,
-                            )
-                        {
-                            // total size of results exceeds size limit, so abort scan
-                            config.abort();
+                            ) {
+                                config.abort();
+                            }
+                            true
+                        } else {
+                            let use_account = filter(account);
+                            if use_account
+                                && Self::accumulate_and_check_scan_result_size(
+                                    &sum,
+                                    account,
+                                    &byte_limit_for_scan,
+                                )
+                            {
+                                // total size of results exceeds size limit, so abort scan
+                                config.abort();
+                            }
+                            use_account
                         }
-                        use_account
                     });
                 },
                 &config,
+                just_get_program_ids,
             )
             .map(|_| collector);
         Self::maybe_abort_scan(result, &config)
+    }
+
+    pub fn load_by_index_key_with_filter_compressed<F: Fn(&AccountSharedData) -> bool>(
+        &self,
+        ancestors: &Ancestors,
+        bank_id: BankId,
+        index_key: &IndexKey,
+        filter: F,
+        config: &ScanConfig,
+        byte_limit_for_scan: Option<usize>,
+        just_get_program_ids: bool,
+    ) -> ScanResult<Vec<TransactionAccountCompressed>> {
+        let sum = AtomicUsize::default();
+        let config = config.recreate_with_abort();
+        let mut collector = Vec::new();
+        let result = self
+            .accounts_db
+            .index_scan_accounts(
+                ancestors,
+                bank_id,
+                *index_key,
+                |some_account_tuple| {
+                    Self::load_while_filtering_compressed(&mut collector, some_account_tuple, |account| {
+                        if just_get_program_ids {
+                            if Self::accumulate_and_check_scan_result_size(
+                                &sum,
+                                account,
+                                &byte_limit_for_scan,
+                            ) {
+                                config.abort();
+                            }
+                            true
+                        } else {
+                            let use_account = filter(account);
+                            if use_account
+                                && Self::accumulate_and_check_scan_result_size(
+                                    &sum,
+                                    account,
+                                    &byte_limit_for_scan,
+                                )
+                            {
+                                // total size of results exceeds size limit, so abort scan
+                                config.abort();
+                            }
+                            use_account
+                        }
+                    });
+                },
+                &config,
+                just_get_program_ids,
+            )
+            .map(|_| collector);
+        Self::maybe_abort_scan_compressed(result, &config)
     }
 
     pub fn account_indexes_include_key(&self, key: &Pubkey) -> bool {
