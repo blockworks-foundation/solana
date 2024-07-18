@@ -194,6 +194,13 @@ pub struct RpcKeyedAccount {
     pub account: UiAccount,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcKeyedCompressedAccount {
+    pub p: String,
+    pub a: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SlotInfo {
     pub slot: Slot,

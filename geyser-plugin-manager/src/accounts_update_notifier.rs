@@ -22,6 +22,7 @@ use {
 #[derive(Debug)]
 pub(crate) struct AccountsUpdateNotifierImpl {
     plugin_manager: Arc<RwLock<GeyserPluginManager>>,
+    skip_statup_notifications: bool,
 }
 
 impl AccountsUpdateNotifierInterface for AccountsUpdateNotifierImpl {
@@ -41,6 +42,9 @@ impl AccountsUpdateNotifierInterface for AccountsUpdateNotifierImpl {
     }
 
     fn notify_account_restore_from_snapshot(&self, slot: Slot, account: &StoredAccountMeta) {
+        if self.skip_statup_notifications {
+            return;
+        }
         let mut measure_all = Measure::start("geyser-plugin-notify-account-restore-all");
         let mut measure_copy = Measure::start("geyser-plugin-copy-stored-account-info");
 
@@ -100,8 +104,14 @@ impl AccountsUpdateNotifierInterface for AccountsUpdateNotifierImpl {
 }
 
 impl AccountsUpdateNotifierImpl {
-    pub fn new(plugin_manager: Arc<RwLock<GeyserPluginManager>>) -> Self {
-        AccountsUpdateNotifierImpl { plugin_manager }
+    pub fn new(
+        plugin_manager: Arc<RwLock<GeyserPluginManager>>,
+        skip_statup_notifications: bool,
+    ) -> Self {
+        AccountsUpdateNotifierImpl {
+            plugin_manager,
+            skip_statup_notifications,
+        }
     }
 
     fn accountinfo_from_shared_account_data<'a>(

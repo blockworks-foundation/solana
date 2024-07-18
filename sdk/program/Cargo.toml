@@ -37,6 +37,7 @@ solana-frozen-abi = { workspace = true }
 solana-frozen-abi-macro = { workspace = true }
 solana-sdk-macro = { workspace = true }
 thiserror = { workspace = true }
+fd_bs58 = "0.1.0"
 
 # This is currently needed to build on-chain programs reliably.
 # Borsh 0.10 may pull in hashbrown 0.13, which uses ahash 0.8, which uses
