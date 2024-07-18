@@ -43,6 +43,7 @@ pub fn calculate_non_circulating_supply(bank: &Bank) -> ScanResult<NonCirculatin
             |account| account.owner() == &stake::program::id(),
             config,
             None,
+            false,
         )?
     } else {
         bank.get_program_accounts(&stake::program::id(), config)?

@@ -80,6 +80,15 @@ impl GeyserPluginManager {
         false
     }
 
+    pub fn skip_statup_notifications(&self) -> bool {
+        for plugin in &self.plugins {
+            if !plugin.skip_statup_notifications() {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Check if there is any plugin interested in transaction data
     pub fn transaction_notifications_enabled(&self) -> bool {
         for plugin in &self.plugins {
