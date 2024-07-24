@@ -113,6 +113,7 @@ use {
         time::Duration,
     },
 };
+use solana_account_decoder::UiAccountData;
 
 pub mod account_resolver;
 
@@ -467,7 +468,7 @@ impl JsonRpcRequestProcessor {
         &self,
         pubkeys: Vec<Pubkey>,
         config: Option<RpcAccountInfoConfig>,
-    ) -> Result<RpcResponse<Vec<Option<UiAccount>>>> {
+    ) -> Result<RpcResponse<Vec<Option<RpcKeyedCompressedAccount>>>> {
         let RpcAccountInfoConfig {
             encoding,
             data_slice,
@@ -482,7 +483,14 @@ impl JsonRpcRequestProcessor {
 
         let accounts = pubkeys
             .into_iter()
-            .map(|pubkey| get_encoded_account(&bank, &pubkey, encoding, data_slice, None))
+            .map(|pubkey| get_encoded_account_compressed(&bank, &pubkey, encoding, data_slice, None))
+            .map(|result| {
+                result.map(|account|
+                    account.map(|(pubkey, account)| RpcKeyedCompressedAccount {
+                        p: pubkey.to_string(),
+                        a: BASE64_STANDARD.encode(account),
+                }))
+            })
             .collect::<Result<Vec<_>>>()?;
         Ok(new_response(&bank, accounts))
     }
@@ -2621,6 +2629,27 @@ fn get_encoded_account(
     }
 }
 
+
+fn get_encoded_account_compressed(
+    bank: &Bank,
+    pubkey: &Pubkey,
+    encoding: UiAccountEncoding,
+    data_slice: Option<UiDataSliceConfig>,
+    // only used for simulation results
+    overwrite_accounts: Option<&HashMap<Pubkey, AccountSharedData>>,
+) -> Result<Option<(Pubkey, Vec<u8>)>> {
+    assert!(matches!(encoding, UiAccountEncoding::Base64), "encoding must be base64");
+    assert!(data_slice.is_none(), "data_slice not supported");
+    match account_resolver::get_account_from_overwrites_or_bank(pubkey, bank, overwrite_accounts) {
+        Some(account) => {
+            let src = bincode::serialize(&account).unwrap();
+            let compressed = lz4::block::compress(&src, Some(lz4::block::CompressionMode::FAST(3)), true).unwrap();
+            Ok(Some((pubkey.clone(), compressed)))
+        }
+        None => Ok(None),
+    }
+}
+
 fn encode_account<T: ReadableAccount>(
     account: &T,
     pubkey: &Pubkey,
@@ -3295,7 +3324,7 @@ pub mod rpc_accounts {
             meta: Self::Metadata,
             pubkey_strs: Vec<String>,
             config: Option<RpcAccountInfoConfig>,
-        ) -> Result<RpcResponse<Vec<Option<UiAccount>>>>;
+        ) -> Result<RpcResponse<Vec<Option<RpcKeyedCompressedAccount>>>>;
 
         #[rpc(meta, name = "getBlockCommitment")]
         fn get_block_commitment(
@@ -3373,9 +3402,9 @@ pub mod rpc_accounts {
             meta: Self::Metadata,
             pubkey_strs: Vec<String>,
             config: Option<RpcAccountInfoConfig>,
-        ) -> Result<RpcResponse<Vec<Option<UiAccount>>>> {
+        ) -> Result<RpcResponse<Vec<Option<RpcKeyedCompressedAccount>>>> {
             debug!(
-                "get_multiple_accounts rpc request received: {:?}",
+                "get_multiple_accounts_compressed rpc request received: {:?}",
                 pubkey_strs.len()
             );
 
@@ -3392,7 +3421,7 @@ pub mod rpc_accounts {
                 .into_iter()
                 .map(|pubkey_str| verify_pubkey(&pubkey_str))
                 .collect::<Result<Vec<_>>>()?;
-            meta.get_multiple_accounts(pubkeys, config)
+            meta.get_multiple_accounts_compressed(pubkeys, config)
         }
 
         fn get_block_commitment(
