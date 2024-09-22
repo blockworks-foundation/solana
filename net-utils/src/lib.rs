@@ -346,6 +346,11 @@ pub fn parse_port_range(port_range: &str) -> Option<PortRange> {
     Some((start_port, end_port))
 }
 
+/// note: this is a very naive simplification done to support IPv6 bindings
+///
+/// conversely it does not do hostname reverse lookup
+///
+/// recommended values to use are `127.0.0.1`, `0.0.0.0`, or `::1` or `::` for binding
 pub fn parse_host(host: &str) -> Result<IpAddr, String> {
     IpAddr::from_str(host)
         .map_err(|err| format!("Unable to parse host bind address <{}>: {}", host, err))
