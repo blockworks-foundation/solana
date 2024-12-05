@@ -2139,6 +2139,57 @@ impl JsonRpcRequestProcessor {
         }
     }
 
+    fn get_filtered_spl_token_accounts_by_owner_compressed(
+        &self,
+        bank: &Bank,
+        program_id: &Pubkey,
+        owner_key: &Pubkey,
+        mut filters: Vec<RpcFilterType>,
+    ) -> RpcCustomResult<Vec<(Pubkey, Vec<u8>)>> {
+        // The by-owner accounts index checks for Token Account state and Owner address on
+        // inclusion. However, due to the current AccountsDb implementation, an account may remain
+        // in storage as a zero-lamport AccountSharedData::Default() after being wiped and reinitialized in
+        // later updates. We include the redundant filters here to avoid returning these accounts.
+        //
+        // Filter on Token Account state
+        filters.push(RpcFilterType::TokenAccountState);
+        // Filter on Owner address
+        filters.push(RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
+            SPL_TOKEN_ACCOUNT_OWNER_OFFSET,
+            owner_key.to_bytes().into(),
+        )));
+
+        if self
+            .config
+            .account_indexes
+            .contains(&AccountIndex::SplTokenOwner)
+        {
+            if !self.config.account_indexes.include_key(owner_key) {
+                return Err(RpcCustomError::KeyExcludedFromSecondaryIndex {
+                    index_key: owner_key.to_string(),
+                });
+            }
+            Ok(bank
+                .get_filtered_indexed_accounts_compressed(
+                    &IndexKey::SplTokenOwner(*owner_key),
+                    |account| {
+                        account.owner() == program_id
+                            && filters
+                                .iter()
+                                .all(|filter_type| filter_type.allows(account))
+                    },
+                    &ScanConfig::default(),
+                    bank.byte_limit_for_scans(),
+                    false,
+                )
+                .map_err(|e| RpcCustomError::ScanError {
+                    message: e.to_string(),
+                })?)
+        } else {
+            self.get_filtered_program_accounts_compressed(bank, program_id, filters, false, false)
+        }
+    }
+
     /// Get an iterator of spl-token accounts by mint address
     fn get_filtered_spl_token_accounts_by_mint(
         &self,
@@ -2187,6 +2238,56 @@ impl JsonRpcRequestProcessor {
                 })?)
         } else {
             self.get_filtered_program_accounts(bank, program_id, filters, sort_results)
+        }
+    }
+
+    fn get_filtered_spl_token_accounts_by_mint_compressed(
+        &self,
+        bank: &Bank,
+        program_id: &Pubkey,
+        mint_key: &Pubkey,
+        mut filters: Vec<RpcFilterType>,
+    ) -> RpcCustomResult<Vec<(Pubkey, Vec<u8>)>> {
+        // The by-mint accounts index checks for Token Account state and Mint address on inclusion.
+        // However, due to the current AccountsDb implementation, an account may remain in storage
+        // as be zero-lamport AccountSharedData::Default() after being wiped and reinitialized in later
+        // updates. We include the redundant filters here to avoid returning these accounts.
+        //
+        // Filter on Token Account state
+        filters.push(RpcFilterType::TokenAccountState);
+        // Filter on Mint address
+        filters.push(RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
+            SPL_TOKEN_ACCOUNT_MINT_OFFSET,
+            mint_key.to_bytes().into(),
+        )));
+        if self
+            .config
+            .account_indexes
+            .contains(&AccountIndex::SplTokenMint)
+        {
+            if !self.config.account_indexes.include_key(mint_key) {
+                return Err(RpcCustomError::KeyExcludedFromSecondaryIndex {
+                    index_key: mint_key.to_string(),
+                });
+            }
+            Ok(bank
+                .get_filtered_indexed_accounts_compressed(
+                    &IndexKey::SplTokenMint(*mint_key),
+                    |account| {
+                        account.owner() == program_id
+                            && filters
+                                .iter()
+                                .all(|filter_type| filter_type.allows(account))
+                    },
+                    &ScanConfig::default(),
+                    bank.byte_limit_for_scans(),
+                    false,
+                )
+                .map_err(|e| RpcCustomError::ScanError {
+                    message: e.to_string(),
+                })?)
+        } else {
+            self.get_filtered_program_accounts_compressed(bank, program_id, filters, false, false)
         }
     }
 

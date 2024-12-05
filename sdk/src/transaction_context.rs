@@ -55,6 +55,7 @@ pub struct InstructionAccount {
 
 /// An account key and the matching account
 pub type TransactionAccount = (Pubkey, AccountSharedData);
+pub type TransactionAccountCompressed = (Pubkey, Vec<u8>);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TransactionAccounts {
