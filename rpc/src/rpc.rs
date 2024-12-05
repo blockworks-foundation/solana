@@ -1,4 +1,5 @@
 //! The `rpc` module implements the Solana RPC interface.
+use itertools::Itertools;
 use {
     crate::{
         filter::filter_allows, max_slots::MaxSlots,
@@ -2242,7 +2243,6 @@ impl JsonRpcRequestProcessor {
                     },
                     &ScanConfig::default(),
                     bank.byte_limit_for_scans(),
-                    true,
                 )
                 .map(|x| x.iter().map(|y| y.0).collect_vec())
                 .map_err(|e| RpcCustomError::ScanError {
@@ -2446,7 +2446,7 @@ impl JsonRpcRequestProcessor {
                         account.owner() == program_id
                             && filters
                                 .iter()
-                                .all(|filter_type| filter_type.allows(account))
+                                .all(|filter_type| filter_type.filter_allows(account))
                     },
                     &ScanConfig::default(),
                     bank.byte_limit_for_scans(),
