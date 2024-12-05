@@ -2167,7 +2167,7 @@ impl JsonRpcRequestProcessor {
         let filter_closure = |account: &AccountSharedData| {
             filters
                 .iter()
-                .all(|filter_type| filter_type.allows(account))
+                .all(|filter_type| filter_allows(filter_type, account))
         };
         if self
             .config
@@ -2345,7 +2345,7 @@ impl JsonRpcRequestProcessor {
                         account.owner() == program_id
                             && filters
                                 .iter()
-                                .all(|filter_type| filter_type.allows(account))
+                                .all(|filter_type| filter_allows(filter_type, account))
                     },
                     &ScanConfig::default(),
                     bank.byte_limit_for_scans(),
@@ -2446,7 +2446,7 @@ impl JsonRpcRequestProcessor {
                         account.owner() == program_id
                             && filters
                                 .iter()
-                                .all(|filter_type| filter_type.filter_allows(account))
+                                .all(|filter_type| filter_allows(filter_type, account))
                     },
                     &ScanConfig::default(),
                     bank.byte_limit_for_scans(),
@@ -3407,6 +3407,14 @@ pub mod rpc_accounts_scan {
             config: Option<RpcProgramAccountsConfig>,
         ) -> Result<OptionalContext<Vec<RpcKeyedAccount>>>;
 
+        #[rpc(meta, name = "getProgramAccountsCompressed")]
+        fn get_program_accounts_compressed(
+            &self,
+            meta: Self::Metadata,
+            program_id_str: String,
+            config: Option<RpcProgramAccountsConfig>,
+        ) -> Result<OptionalContext<Vec<RpcKeyedCompressedAccount>>>;
+
         #[rpc(meta, name = "getLargestAccounts")]
         fn get_largest_accounts(
             &self,
@@ -3486,6 +3494,37 @@ pub mod rpc_accounts_scan {
                 verify_filter(filter)?;
             }
             meta.get_program_accounts(&program_id, config, filters, with_context, sort_results)
+        }
+
+        fn get_program_accounts_compressed(
+            &self,
+            meta: Self::Metadata,
+            program_id_str: String,
+            config: Option<RpcProgramAccountsConfig>,
+        ) -> Result<OptionalContext<Vec<RpcKeyedCompressedAccount>>> {
+            debug!(
+                "get_program_accounts_compressed rpc request received: {:?}",
+                program_id_str
+            );
+            let program_id = verify_pubkey(&program_id_str)?;
+            let (config, filters, with_context) = if let Some(config) = config {
+                (
+                    Some(config.account_config),
+                    config.filters.unwrap_or_default(),
+                    config.with_context.unwrap_or_default(),
+                )
+            } else {
+                (None, vec![], false)
+            };
+            if filters.len() > MAX_GET_PROGRAM_ACCOUNT_FILTERS {
+                return Err(Error::invalid_params(format!(
+                    "Too many filters provided; max {MAX_GET_PROGRAM_ACCOUNT_FILTERS}"
+                )));
+            }
+            for filter in &filters {
+                verify_filter(filter)?;
+            }
+            meta.get_program_accounts_compressed(&program_id, config, filters, with_context)
         }
 
         fn get_largest_accounts(
