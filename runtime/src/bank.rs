@@ -151,7 +151,7 @@ use {
             self, MessageHash, Result, SanitizedTransaction, Transaction, TransactionError,
             TransactionVerificationMode, VersionedTransaction, MAX_TX_ACCOUNT_LOCKS,
         },
-        transaction_context::{TransactionAccount, TransactionReturnData},
+        transaction_context::{TransactionAccount, TransactionReturnData, TransactionAccountCompressed},
     },
     solana_stake_program::{
         points::{InflationPointCalculationEvent, PointValue},
@@ -5271,6 +5271,7 @@ impl Bank {
             byte_limit_for_scan,
         )
     }
+
 
     pub fn get_filtered_indexed_accounts_compressed<F: Fn(&AccountSharedData) -> bool>(
         &self,

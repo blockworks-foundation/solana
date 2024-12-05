@@ -2087,6 +2087,69 @@ impl JsonRpcRequestProcessor {
         }
     }
 
+
+
+
+    fn get_filtered_program_accounts_compressed(
+        &self,
+        bank: &Bank,
+        program_id: &Pubkey,
+        mut filters: Vec<RpcFilterType>,
+        just_get_program_ids: bool,
+        ordered: bool,
+    ) -> RpcCustomResult<Vec<(Pubkey, Vec<u8>)>> {
+        optimize_filters(&mut filters);
+        let filter_closure = |account: &AccountSharedData| {
+            filters
+                .iter()
+                .all(|filter_type| filter_type.allows(account))
+        };
+        if self
+            .config
+            .account_indexes
+            .contains(&AccountIndex::ProgramId)
+        {
+            if !self.config.account_indexes.include_key(program_id) {
+                return Err(RpcCustomError::KeyExcludedFromSecondaryIndex {
+                    index_key: program_id.to_string(),
+                });
+            }
+            Ok(bank
+                .get_filtered_indexed_accounts_compressed(
+                    &IndexKey::ProgramId(*program_id),
+                    |account| {
+                        // The program-id account index checks for Account owner on inclusion. However, due
+                        // to the current AccountsDb implementation, an account may remain in storage as a
+                        // zero-lamport AccountSharedData::Default() after being wiped and reinitialized in later
+                        // updates. We include the redundant filters here to avoid returning these
+                        // accounts.
+                        if just_get_program_ids {
+                            true
+                        } else {
+                            account.owner() == program_id && filter_closure(account)
+                        }
+                    },
+                    &ScanConfig::new(!ordered),
+                    bank.byte_limit_for_scans(),
+                    just_get_program_ids,
+                )
+                .map_err(|e| RpcCustomError::ScanError {
+                    message: e.to_string(),
+                })?)
+        } else {
+            // this path does not need to provide a mb limit because we only want to support secondary indexes
+            Ok(bank
+                .get_filtered_program_accounts_compressed(
+                    program_id,
+                    filter_closure,
+                    &ScanConfig::new(!ordered),
+                )
+                .map_err(|e| RpcCustomError::ScanError {
+                    message: e.to_string(),
+                })?)
+        }
+    }
+
     /// Get an iterator of spl-token accounts by owner address
     fn get_filtered_spl_token_accounts_by_owner(
         &self,

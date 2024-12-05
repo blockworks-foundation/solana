@@ -26,7 +26,7 @@ use {
         pubkey::Pubkey,
         slot_hashes::SlotHashes,
         transaction::{Result, SanitizedTransaction, TransactionAccountLocks, TransactionError},
-        transaction_context::TransactionAccount,
+        transaction_context::{TransactionAccount, TransactionAccountCompressed},
     },
     solana_svm::{
         account_loader::TransactionLoadResult, nonce_info::NonceInfo,
@@ -575,7 +575,7 @@ impl Accounts {
                     });
                 },
                 &config,
-                just_get_program_ids,
+                // just_get_program_ids,
             )
             .map(|_| collector);
         Self::maybe_abort_scan_compressed(result, &config)
