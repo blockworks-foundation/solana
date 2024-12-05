@@ -151,7 +151,9 @@ use {
             self, MessageHash, Result, SanitizedTransaction, Transaction, TransactionError,
             TransactionVerificationMode, VersionedTransaction, MAX_TX_ACCOUNT_LOCKS,
         },
-        transaction_context::{TransactionAccount, TransactionReturnData},
+        transaction_context::{
+            TransactionAccount, TransactionAccountCompressed, TransactionReturnData,
+        },
     },
     solana_stake_program::{
         points::{InflationPointCalculationEvent, PointValue},
@@ -5240,6 +5242,21 @@ impl Bank {
         )
     }
 
+    pub fn get_filtered_program_accounts_compressed<F: Fn(&AccountSharedData) -> bool>(
+        &self,
+        program_id: &Pubkey,
+        filter: F,
+        config: &ScanConfig,
+    ) -> ScanResult<Vec<TransactionAccountCompressed>> {
+        self.rc.accounts.load_by_program_with_filter_compressed(
+            &self.ancestors,
+            self.bank_id,
+            program_id,
+            filter,
+            config,
+        )
+    }
+
     pub fn get_filtered_indexed_accounts<F: Fn(&AccountSharedData) -> bool>(
         &self,
         index_key: &IndexKey,
@@ -5254,6 +5271,25 @@ impl Bank {
             filter,
             config,
             byte_limit_for_scan,
+        )
+    }
+
+    pub fn get_filtered_indexed_accounts_compressed<F: Fn(&AccountSharedData) -> bool>(
+        &self,
+        index_key: &IndexKey,
+        filter: F,
+        config: &ScanConfig,
+        byte_limit_for_scan: Option<usize>,
+        just_get_program_ids: bool,
+    ) -> ScanResult<Vec<TransactionAccountCompressed>> {
+        self.rc.accounts.load_by_index_key_with_filter_compressed(
+            &self.ancestors,
+            self.bank_id,
+            index_key,
+            filter,
+            config,
+            byte_limit_for_scan,
+            just_get_program_ids,
         )
     }
 
