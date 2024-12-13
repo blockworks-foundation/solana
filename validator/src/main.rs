@@ -1961,6 +1961,12 @@ pub fn main() {
     }
 
     info!("Starting validator with sockets {:?}", node.sockets);
+    info!("tvu_count: {}", node.sockets.tvu.len());
+    info!("tpu_count: {}", node.sockets.tpu.len());
+    info!("tpu_forwards_count: {}", node.sockets.tpu_forwards.len());
+    info!("tpu_vote_count: {}", node.sockets.tpu_vote.len());
+    info!("broadcast_count: {}", node.sockets.broadcast.len());
+    info!("retransmit_sockets_count: {}", node.sockets.retransmit_sockets.len());
 
     if !private_rpc {
         macro_rules! set_socket {
