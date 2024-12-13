@@ -1929,6 +1929,8 @@ pub fn main() {
                 })
             });
 
+
+
     let node_config = NodeConfig {
         gossip_addr,
         port_range: dynamic_port_range,
@@ -1957,6 +1959,8 @@ pub fn main() {
         // A node in this configuration shouldn't be an entrypoint to other nodes
         node.sockets.ip_echo = None;
     }
+
+    info!("Starting validator with sockets {:?}", node.sockets);
 
     if !private_rpc {
         macro_rules! set_socket {
