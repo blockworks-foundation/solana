@@ -1,3 +1,4 @@
+use log::{info, warn};
 use {
     crate::{account_storage::meta::StoredAccountMeta, accounts_db::AccountsDb},
     solana_measure::measure::Measure,
@@ -49,7 +50,8 @@ impl AccountsDb {
 
         slots.sort_by(|a, b| b.cmp(a));
         for slot in slots {
-            self.notify_accounts_in_slot(slot, &mut notified_accounts, &mut notify_stats);
+            // self.notify_accounts_in_slot(slot, &mut notified_accounts, &mut notify_stats);
+            info!("disabled call to notify_accounts_in_slot for slot {}", slot);
         }
 
         let accounts_update_notifier = self.accounts_update_notifier.as_ref().unwrap();
@@ -76,6 +78,7 @@ impl AccountsDb {
         }
     }
 
+    // NOTE: this is snapshot related
     fn notify_accounts_in_slot(
         &self,
         slot: Slot,
